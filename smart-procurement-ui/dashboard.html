@@ -20,7 +20,7 @@
             <nav class="nav-menu">
                 <a href="#" class="nav-item active" data-target="view-overview"><i class="ph ph-squares-four"></i> 總覽頁</a>
                 <a href="#" class="nav-item" data-target="view-prediction"><i class="ph ph-calculator"></i> 議價預測頁</a>
-                <a href="#" class="nav-item" data-target="view-risk"><i class="ph ph-warning-octagon"></i> 風險訂單頁</a>
+                <a href="#" class="nav-item" data-target="view-recommendation"><i class="ph ph-ranking"></i> 供應商推薦模型</a>
                 <a href="#" class="nav-item" data-target="view-supplier"><i class="ph ph-buildings"></i> 供應商分析頁</a>
                 <a href="#" class="nav-item" data-target="view-reports"><i class="ph ph-file-text"></i> 報表頁</a>
             </nav>
@@ -143,39 +143,40 @@
                 </div>
             </div>
 
-            <!-- VIEW: Risk Orders -->
-            <div id="view-risk" class="view-section">
+            <!-- VIEW: Supplier Recommendation Model -->
+            <div id="view-recommendation" class="view-section">
                 <div class="dashboard-header">
-                    <h1>風險訂單 (Risk Orders)</h1>
-                    <p>列出前 10% 高風險訂單、原因與建議處理方式。</p>
+                    <h1>供應商推薦模型 (IT Software Supplier Recommendation)</h1>
+                    <p>根據歷史節省率、準時交付率、供應商風險、ESG 分數與 Preferred 狀態進行綜合推薦。</p>
+                </div>
+
+                <div class="card glass-panel mb-4">
+                    <div class="card-header">
+                        <h3><i class="ph ph-sliders"></i> 選擇採購情境</h3>
+                    </div>
+                    <div class="scenario-toggles" style="display: flex; gap: 1rem; margin-top: 1rem; padding: 0 1.5rem 1.5rem;">
+                        <button class="btn btn-primary" id="btn-scenario-cost" onclick="switchScenario('cost')"><i class="ph ph-piggy-bank"></i> 降本優先 (Cost-driven)</button>
+                        <button class="btn btn-secondary" id="btn-scenario-urgent" onclick="switchScenario('urgent')"><i class="ph ph-clock-countdown"></i> 急件優先 (Urgent)</button>
+                        <button class="btn btn-secondary" id="btn-scenario-compliance" onclick="switchScenario('compliance')"><i class="ph ph-leaf"></i> 合規優先 (Compliance)</button>
+                    </div>
                 </div>
 
                 <div class="card glass-panel">
-                    <table class="data-table" id="risk-table">
+                    <div class="card-header">
+                        <h3><i class="ph ph-list-numbers"></i> 推薦清單 (Top 3)</h3>
+                    </div>
+                    <table class="data-table" id="recommendation-table">
                         <thead>
                             <tr>
-                                <th>PO 編號</th>
-                                <th>供應商</th>
-                                <th>預測超支</th>
-                                <th>高風險原因 (SHAP 摘要)</th>
-                                <th>建議行動</th>
+                                <th>排名</th>
+                                <th>供應商名稱</th>
+                                <th>推薦分數</th>
+                                <th>推薦亮點</th>
+                                <th>動作</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong id="val-risk-po1">PO-9921</strong></td>
-                                <td id="val-risk-sup1">Legacy IT Partners</td>
-                                <td class="danger-text" id="val-risk-amt1">-3.5%</td>
-                                <td id="val-risk-reason1">近期漲價頻率高、歷史合約均價高</td>
-                                <td><button class="btn btn-sm btn-secondary"><i class="ph ph-handshake"></i> 重新議價</button></td>
-                            </tr>
-                            <tr>
-                                <td><strong id="val-risk-po2">PO-9945</strong></td>
-                                <td id="val-risk-sup2">Global Systems Inc.</td>
-                                <td class="danger-text" id="val-risk-amt2">-2.1%</td>
-                                <td id="val-risk-reason2">交期可能延宕、PMI 看漲</td>
-                                <td><button class="btn btn-sm btn-primary"><i class="ph ph-arrows-left-right"></i> 更換供應商</button></td>
-                            </tr>
+                        <tbody id="recommendation-list">
+                            <!-- Dynamic Content Inserted by dashboard.js -->
                         </tbody>
                     </table>
                 </div>
