@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartProcure 系統軟體架構圖</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050814;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-main: #f3f4f6;
+            --text-sub: #9ca3af;
+            
+            --color-data: #10b981; /* Green */
+            --color-ai: #8b5cf6; /* Purple */
+            --color-api: #3b82f6; /* Blue */
+            --color-ui: #ec4899; /* Pink */
+            --color-db: #f59e0b; /* Orange */
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 10% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 90% 50%, rgba(236, 72, 153, 0.05) 0%, transparent 40%);
+            color: var(--text-main);
+            font-family: 'Noto Sans TC', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .header {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            width: 100%;
+            z-index: 5;
+        }
+
+        .header h1 {
+            font-size: 26px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+            letter-spacing: 2px;
+        }
+
+        .header p {
+            color: var(--text-sub);
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .container {
+            position: relative;
+            width: 1180px;
+            height: 600px;
+            margin-top: 70px;
+        }
+
+        /* Layer Boxes */
+        .layer-box {
+            position: absolute;
+            border: 1px dashed rgba(255,255,255,0.15);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.015);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .layer-title {
+            color: rgba(255,255,255,0.3);
+            font-size: 12px;
+            font-weight: 700;
+            text-align: center;
+            margin-top: 10px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        /* SVG Background Lines */
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .path-bg {
+            fill: none;
+            stroke: rgba(255,255,255,0.08);
+            stroke-width: 3;
+            stroke-linecap: round;
+        }
+
+        .path-light {
+            fill: none;
+            stroke-width: 3;
+            stroke-linecap: round;
+            stroke-dasharray: 15 150;
+            animation: flow 3s linear infinite;
+        }
+
+        .light-data { stroke: var(--color-data); filter: drop-shadow(0 0 6px var(--color-data)); }
+        .light-ai { stroke: var(--color-ai); filter: drop-shadow(0 0 6px var(--color-ai)); }
+        .light-api { stroke: var(--color-api); filter: drop-shadow(0 0 6px var(--color-api)); }
+        .light-ui { stroke: var(--color-ui); filter: drop-shadow(0 0 6px var(--color-ui)); }
+        .light-db { stroke: var(--color-db); filter: drop-shadow(0 0 6px var(--color-db)); }
+
+        @keyframes flow {
+            from { stroke-dashoffset: 165; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Node Styling - Restoring 3D Glassmorphism */
+        .node {
+            position: absolute;
+            background: rgba(17, 24, 39, 0.85); /* Semi-transparent for depth */
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 18px 15px;
+            width: 170px;
+            text-align: center;
+            z-index: 10;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            /* 3D bevel and shadow */
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 4px 10px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .node::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            border-radius: 11px;
+            z-index: -1;
+            opacity: 0.4;
+            transition: opacity 0.4s ease;
+        }
+
+        .node:hover {
+            transform: translateY(-8px) scale(1.06);
+            z-index: 30;
+            background: rgba(17, 24, 39, 0.7); /* Let more light through */
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 15px 30px rgba(0, 0, 0, 0.7), 0 0 25px var(--hover-color);
+        }
+
+        .node:hover::before {
+            opacity: 1; /* Ignite the 3D gradient light */
+        }
+
+        .node-data::before { background: linear-gradient(135deg, transparent 20%, var(--color-data) 50%, transparent 80%); }
+        .node-data { border-top: 3px solid var(--color-data); --hover-color: var(--color-data); }
+
+        .node-ai::before { background: linear-gradient(135deg, transparent 20%, var(--color-ai) 50%, transparent 80%); }
+        .node-ai { border-top: 3px solid var(--color-ai); --hover-color: var(--color-ai); }
+
+        .node-api::before { background: linear-gradient(135deg, transparent 20%, var(--color-api) 50%, transparent 80%); }
+        .node-api { border-top: 3px solid var(--color-api); --hover-color: var(--color-api); }
+
+        .node-ui::before { background: linear-gradient(135deg, transparent 20%, var(--color-ui) 50%, transparent 80%); }
+        .node-ui { border-top: 3px solid var(--color-ui); --hover-color: var(--color-ui); }
+
+        .node-db::before { background: linear-gradient(135deg, transparent 20%, var(--color-db) 50%, transparent 80%); }
+        .node-db { border-top: 3px solid var(--color-db); --hover-color: var(--color-db); }
+
+        .node h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        .node p {
+            margin: 12px 0 0 0;
+            font-size: 13px;
+            color: #cbd5e1;
+            line-height: 1.5;
+            font-weight: 400;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Use text-shadow to pop text out from the bright gradient background */
+        .node:hover h3 {
+            color: #ffffff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.8), 0 0 20px var(--hover-color);
+        }
+
+        .node:hover p {
+            color: #ffffff;
+            font-weight: 500;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.8);
+        }
+        
+        .tag {
+            display: inline-block;
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.1);
+            color: #e2e8f0;
+            font-weight: 500;
+            position: relative;
+            z-index: 2;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        /* 
+         * Nodes Coordinates:
+         * Width=200px (170px + 30px padding). Height=~100px.
+         */
+        #n-kaggle { top: 200px; left: 20px; }
+        #n-pipeline { top: 200px; left: 250px; }
+        
+        #n-model1 { top: 60px; left: 480px; }
+        #n-model2 { top: 200px; left: 480px; }
+        #n-shap { top: 340px; left: 480px; }
+
+        #n-gateway { top: 200px; left: 710px; }
+        #n-logger { top: 420px; left: 710px; }
+
+        #n-spa { top: 200px; left: 940px; }
+        #n-auditdb { top: 420px; left: 940px; }
+
+        /* Floating Animation */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0px); }
+        }
+        
+        .floating { animation: float 6s ease-in-out infinite; }
+        .floating-delay-1 { animation: float 6s ease-in-out infinite; animation-delay: 1.5s; }
+        .floating-delay-2 { animation: float 6s ease-in-out infinite; animation-delay: 3s; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>SmartProcure 系統軟體架構圖 (System Architecture)</h1>
+        <p>多層式架構設計與動態資料流</p>
+    </div>
+
+    <div class="container">
+        <!-- Layer Boundaries -->
+        <div class="layer-box" style="left: 5px; width: 455px; top: 10px; height: 530px;">
+            <div class="layer-title">Data Layer</div>
+        </div>
+        <div class="layer-box" style="left: 465px; width: 230px; top: 10px; height: 530px;">
+            <div class="layer-title">AI Engine Layer</div>
+        </div>
+        <div class="layer-box" style="left: 700px; width: 230px; top: 10px; height: 530px;">
+            <div class="layer-title">API / Logic Layer</div>
+        </div>
+        <div class="layer-box" style="left: 935px; width: 230px; top: 10px; height: 530px;">
+            <div class="layer-title">Presentation Layer</div>
+        </div>
+
+        <!-- Connecting Lines -->
+        <svg>
+            <path class="path-bg" d="M 220 250 L 250 250" />
+            <path class="path-light light-data" d="M 220 250 L 250 250" />
+
+            <path class="path-bg" d="M 450 250 C 465 250 465 110 480 110" />
+            <path class="path-light light-data" d="M 450 250 C 465 250 465 110 480 110" />
+
+            <path class="path-bg" d="M 450 250 L 480 250" />
+            <path class="path-light light-data" d="M 450 250 L 480 250" />
+
+            <path class="path-bg" d="M 450 250 C 465 250 465 390 480 390" />
+            <path class="path-light light-data" d="M 450 250 C 465 250 465 390 480 390" />
+
+            <path class="path-bg" d="M 680 110 C 695 110 695 235 710 235" />
+            <path class="path-light light-ai" d="M 680 110 C 695 110 695 235 710 235" />
+
+            <path class="path-bg" d="M 680 250 L 710 250" />
+            <path class="path-light light-ai" d="M 680 250 L 710 250" />
+
+            <path class="path-bg" d="M 680 390 C 695 390 695 265 710 265" />
+            <path class="path-light light-ai" d="M 680 390 C 695 390 695 265 710 265" />
+
+            <path class="path-bg" d="M 910 250 L 940 250" />
+            <path class="path-light light-api" d="M 910 250 L 940 250" />
+
+            <path class="path-bg" d="M 1040 300 C 1040 360 810 360 810 420" />
+            <path class="path-light light-ui" d="M 1040 300 C 1040 360 810 360 810 420" />
+
+            <path class="path-bg" d="M 910 470 L 940 470" />
+            <path class="path-light light-api" d="M 910 470 L 940 470" />
+        </svg>
+
+        <!-- Nodes -->
+        <!-- Layer 1: Data -->
+        <div id="n-kaggle" class="node node-data floating">
+            <h3 style="color: var(--color-data)">Kaggle B2B 資料集</h3>
+            <div class="tag">Raw Data Source</div>
+            <p>5,200筆歷史採購交易資料</p>
+        </div>
+        <div id="n-pipeline" class="node node-data floating-delay-1">
+            <h3 style="color: var(--color-data)">資料前處理與防漏</h3>
+            <div class="tag">Data Pipeline</div>
+            <p>排除事後特徵、處理缺失值</p>
+        </div>
+
+        <!-- Layer 2: AI Engine -->
+        <div id="n-model1" class="node node-ai floating-delay-2">
+            <h3 style="color: var(--color-ai)">採購節省率預測模型</h3>
+            <div class="tag">XGBoost Regression</div>
+            <p>預測 Savings Pct 與風險分類</p>
+        </div>
+        <div id="n-model2" class="node node-ai floating">
+            <h3 style="color: var(--color-ai)">IT供應商推薦模型</h3>
+            <div class="tag">Ranking System</div>
+            <p>歷史績效與 ESG 權重排序</p>
+        </div>
+        <div id="n-shap" class="node node-ai floating-delay-1">
+            <h3 style="color: var(--color-ai)">SHAP 可解釋性模組</h3>
+            <div class="tag">Explainable AI</div>
+            <p>產出決策推論與自然語言摘要</p>
+        </div>
+
+        <!-- Layer 3: API & Logic -->
+        <div id="n-gateway" class="node node-api floating-delay-2">
+            <h3 style="color: var(--color-api)">REST API 閘道器</h3>
+            <div class="tag">Python Backend</div>
+            <p>負責處理模型推論與資料綁定</p>
+        </div>
+        <div id="n-logger" class="node node-api floating">
+            <h3 style="color: var(--color-api)">操作日誌稽核器</h3>
+            <div class="tag">Audit Middleware</div>
+            <p>攔截更新與刪除操作並寫入</p>
+        </div>
+
+        <!-- Layer 4: Presentation & Storage -->
+        <div id="n-spa" class="node node-ui floating-delay-1">
+            <h3 style="color: var(--color-ui)">SPA 決策儀表板</h3>
+            <div class="tag">HTML / CSS / JS</div>
+            <p>總覽、預測、供應商推薦UI</p>
+        </div>
+        <div id="n-auditdb" class="node node-db floating-delay-2">
+            <h3 style="color: var(--color-db)">稽核日誌資料庫</h3>
+            <div class="tag">Audit DB</div>
+            <p>儲存 Before/After 狀態與軌跡</p>
+        </div>
+    </div>
+</body>
+</html>

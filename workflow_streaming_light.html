@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartProcure 專案流程架構圖</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-main: #f3f4f6;
+            --text-sub: #9ca3af;
+            
+            --color-1: #3b82f6; /* Blue */
+            --color-2: #8b5cf6; /* Purple */
+            --color-3: #10b981; /* Green */
+            --color-4: #f59e0b; /* Orange */
+            --color-5: #ec4899; /* Pink */
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.05) 0%, transparent 50%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.05) 0%, transparent 50%);
+            color: var(--text-main);
+            font-family: 'Noto Sans TC', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .header {
+            position: absolute;
+            top: 30px;
+            text-align: center;
+            width: 100%;
+            z-index: 5;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+            letter-spacing: 2px;
+        }
+
+        .header p {
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .container {
+            position: relative;
+            width: 1100px;
+            height: 620px;
+            margin-top: 60px;
+        }
+
+        /* SVG Background Lines */
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .path-bg {
+            fill: none;
+            stroke: #1f2937;
+            stroke-width: 4;
+            stroke-linecap: round;
+        }
+
+        .path-light {
+            fill: none;
+            stroke-width: 4;
+            stroke-linecap: round;
+            stroke-dasharray: 15 150;
+            animation: flow 3s linear infinite;
+        }
+
+        .light-1 { stroke: var(--color-1); filter: drop-shadow(0 0 8px var(--color-1)); }
+        .light-2 { stroke: var(--color-2); filter: drop-shadow(0 0 8px var(--color-2)); }
+        .light-3 { stroke: var(--color-3); filter: drop-shadow(0 0 8px var(--color-3)); }
+        .light-4 { stroke: var(--color-4); filter: drop-shadow(0 0 8px var(--color-4)); }
+
+        @keyframes flow {
+            from { stroke-dashoffset: 165; }
+            to { stroke-dashoffset: 0; }
+        }
+
+        /* Node Styling - Restoring 3D Glassmorphism */
+        .node {
+            position: absolute;
+            background: rgba(17, 24, 39, 0.85); /* Semi-transparent for depth */
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px 20px;
+            width: 220px;
+            text-align: center;
+            z-index: 10;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            /* 3D bevel and shadow */
+            box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 4px 15px rgba(0, 0, 0, 0.5);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .node::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            border-radius: 13px;
+            z-index: -1;
+            opacity: 0.4;
+            transition: opacity 0.4s ease;
+        }
+
+        .node:hover {
+            transform: translateY(-8px) scale(1.06);
+            z-index: 30;
+            background: rgba(17, 24, 39, 0.7); /* Let more light through */
+            border-color: rgba(255, 255, 255, 0.3);
+            box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.3), 0 15px 30px rgba(0, 0, 0, 0.7), 0 0 25px var(--hover-color);
+        }
+
+        .node:hover::before {
+            opacity: 1; /* Ignite the 3D gradient light */
+        }
+
+        .node-1::before { background: linear-gradient(135deg, transparent 20%, var(--color-1) 50%, transparent 80%); }
+        .node-1 { border-top: 3px solid var(--color-1); --hover-color: var(--color-1); }
+
+        .node-2::before { background: linear-gradient(135deg, transparent 20%, var(--color-2) 50%, transparent 80%); }
+        .node-2 { border-top: 3px solid var(--color-2); --hover-color: var(--color-2); }
+
+        .node-3::before { background: linear-gradient(135deg, transparent 20%, var(--color-3) 50%, transparent 80%); }
+        .node-3 { border-top: 3px solid var(--color-3); --hover-color: var(--color-3); }
+
+        .node-4::before { background: linear-gradient(135deg, transparent 20%, var(--color-4) 50%, transparent 80%); }
+        .node-4 { border-top: 3px solid var(--color-4); --hover-color: var(--color-4); }
+
+        .node-5::before { background: linear-gradient(135deg, transparent 20%, var(--color-5) 50%, transparent 80%); }
+        .node-5 { border-top: 3px solid var(--color-5); --hover-color: var(--color-5); }
+
+        .node h3 {
+            margin: 0 0 12px 0;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        .node p {
+            margin: 15px 0 0 0;
+            font-size: 15px;
+            color: #cbd5e1;
+            line-height: 1.6;
+            font-weight: 400;
+            transition: all 0.3s ease;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Use text-shadow to pop text out from the bright gradient background */
+        .node:hover h3 {
+            color: #ffffff;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 10px rgba(0,0,0,0.8), 0 0 20px var(--hover-color);
+        }
+
+        .node:hover p {
+            color: #ffffff;
+            font-weight: 500;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.8);
+        }
+        
+        .tag {
+            display: inline-block;
+            font-size: 12px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            background: rgba(255,255,255,0.1);
+            color: #e2e8f0;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            position: relative;
+            z-index: 2;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        /* 
+         * Positions
+         */
+        #n-predict { top: 80px; left: 50px; }       
+        #n-recommend { top: 380px; left: 50px; }    
+        #n-dashboard { top: 80px; left: 420px; }    
+        #n-analysis { top: 380px; left: 420px; }    
+        #n-audit { top: 230px; left: 790px; }       
+
+        /* Floating Animation */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+            100% { transform: translateY(0px); }
+        }
+        
+        .floating { animation: float 6s ease-in-out infinite; }
+        .floating-delay-1 { animation: float 6s ease-in-out infinite; animation-delay: 1.5s; }
+        .floating-delay-2 { animation: float 6s ease-in-out infinite; animation-delay: 3s; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>SmartProcure 核心模組架構圖</h1>
+        <p>AI 驅動企業採購智慧決策系統 - 動態流光流程</p>
+    </div>
+
+    <div class="container">
+        <!-- Connecting Lines -->
+        <svg>
+            <path class="path-bg" d="M 310 170 L 420 170" />
+            <path class="path-light light-1" d="M 310 170 L 420 170" />
+
+            <path class="path-bg" d="M 310 470 L 420 470" />
+            <path class="path-light light-2" d="M 310 470 L 420 470" />
+
+            <path class="path-bg" d="M 550 380 L 550 260" />
+            <path class="path-light light-3" d="M 550 380 L 550 260" />
+
+            <path class="path-bg" d="M 680 170 C 735 170 735 320 790 320" />
+            <path class="path-light light-4" d="M 680 170 C 735 170 735 320 790 320" />
+
+            <path class="path-bg" d="M 680 470 C 735 470 735 320 790 320" />
+            <path class="path-light light-3" d="M 680 470 C 735 470 735 320 790 320" />
+        </svg>
+
+        <!-- Nodes -->
+        <div id="n-predict" class="node node-1 floating">
+            <h3 style="color: var(--color-1)">議價空間預測</h3>
+            <div class="tag">Bargain Prediction</div>
+            <p>輸入預算與數量<br>AI 預測潛在節省率與金額</p>
+        </div>
+
+        <div id="n-recommend" class="node node-2 floating-delay-1">
+            <h3 style="color: var(--color-2)">供應商推薦模型</h3>
+            <div class="tag">Recommendation</div>
+            <p>綜合比較節省率、準時率<br>風險、ESG 與單一來源</p>
+        </div>
+
+        <div id="n-dashboard" class="node node-4 floating-delay-2">
+            <h3 style="color: var(--color-4)">全局戰略總覽</h3>
+            <div class="tag">Overview Dashboard</div>
+            <p>實時監控預估節省金額<br>平均風險分數與高風險訂單</p>
+        </div>
+
+        <div id="n-analysis" class="node node-3 floating">
+            <h3 style="color: var(--color-3)">供應商動態分析</h3>
+            <div class="tag">Supplier Analysis</div>
+            <p>整合供應商分級、地區<br>支援動態調整推薦權重</p>
+        </div>
+
+        <div id="n-audit" class="node node-5 floating-delay-1">
+            <h3 style="color: var(--color-5)">報表與日誌稽核</h3>
+            <div class="tag">Reports & Audit Logs</div>
+            <p>一鍵匯出週/月報與LLM摘要<br>操作日誌與資料變更稽核</p>
+        </div>
+    </div>
+</body>
+</html>
