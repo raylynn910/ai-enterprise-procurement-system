@@ -166,6 +166,18 @@ async function loadSuppliersFromAPI() {
                 { name: "Demo IT Vendor (No Data)", savings: 5.0, otd: 90, risk: 20, esg: 70, preferred: true }
             ];
         }
+
+        // Populate prediction dropdown
+        const selectElement = document.getElementById('input-supplier');
+        if (selectElement && mockSuppliers.length > 0) {
+            selectElement.innerHTML = ''; // clear old hardcoded options
+            mockSuppliers.forEach(sup => {
+                const opt = document.createElement('option');
+                opt.value = sup.name;
+                opt.textContent = sup.name;
+                selectElement.appendChild(opt);
+            });
+        }
         
         // Default render
         if (typeof window.switchScenario === 'function') {
