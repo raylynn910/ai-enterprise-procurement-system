@@ -38,21 +38,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const predictionResult = document.getElementById('prediction-result');
     const valPredSavings = document.getElementById('val-pred-savings');
     const valPredAmount = document.getElementById('val-pred-amount');
+    const predictionResult = document.getElementById('prediction-result');
     
     if (btnPredict) {
-        btnPredict.addEventListener('click', () => {
+        btnPredict.addEventListener('click', async () => {
             // Add simple loading state
             btnPredict.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 預測中...';
             btnPredict.disabled = true;
 
-            // Simulate API call delay
-            setTimeout(() => {
-                // Get form values (can be used to send to backend API later)
-                const supplier = document.getElementById('input-supplier').value;
-                const budget = parseFloat(document.getElementById('input-budget').value) || 0;
+            const supplier = document.getElementById('input-supplier').value;
+            const category = document.getElementById('input-category') ? document.getElementById('input-category').value : 'IT Software';
+            const budget = parseFloat(document.getElementById('input-budget').value) || 0;
+            
+            try {
+                // Call POST /api/predict/supplier-risk API
+                const response = await fetch('http://localhost:8000/api/predict/supplier-risk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        supplier_id: supplier || 'SUP-001',
+                        category: category
+                    })
+                });
                 
-                // Mock logic: calculate some fake savings based on inputs
-                let fakeSavingsPct = supplier === 'S001' ? 8.5 : (supplier === 'S002' ? -2.1 : 5.0);
+                const result = await response.json();
+                
+                // For demonstration, map risk score back to savings for the original UI (or just display the risk output)
+                // The UI expects Savings Pct and Savings Amount.
+                // We'll calculate fake savings based on risk_score (lower risk = higher savings)
+                let fakeSavingsPct = 10 - (result.risk_score / 10);
                 let fakeAmount = (budget * fakeSavingsPct) / 100;
                 
                 // Update UI
@@ -66,13 +80,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 valPredAmount.innerText = '$' + fakeAmount.toFixed(2);
                 
+                // Show recommendation text in a small alert below the amount
+                let recDiv = document.getElementById('pred-recommendation');
+                if (!recDiv) {
+                    recDiv = document.createElement('div');
+                    recDiv.id = 'pred-recommendation';
+                    recDiv.style.marginTop = '10px';
+                    recDiv.style.fontSize = '0.9rem';
+                    predictionResult.appendChild(recDiv);
+                }
+                recDiv.innerHTML = `<strong class="${result.risk_level === 'High' ? 'danger-text' : (result.risk_level === 'Medium' ? 'warning-text' : 'success-text')}">風險等級: ${result.risk_level}</strong><br/>${result.recommendation}`;
+                
                 // Show result panel
                 predictionResult.style.display = 'block';
                 
+            } catch (error) {
+                console.error('API Error:', error);
+                alert('API 呼叫失敗，請確認 FastAPI 後端已啟動。');
+            } finally {
                 // Reset button
                 btnPredict.innerHTML = '<i class="ph ph-magic-wand"></i> 執行預測';
                 btnPredict.disabled = false;
-            }, 1000);
+            }
         });
     }
 
@@ -85,14 +114,73 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Supplier Recommendation Model Logic
-const mockSuppliers = [
-    { name: "CloudTech Solutions", savings: 12.5, otd: 98, risk: 10, esg: 85, preferred: true },
-    { name: "Legacy IT Partners", savings: 2.1, otd: 82, risk: 65, esg: 45, preferred: false },
-    { name: "Agile Softworks", savings: 8.0, otd: 99, risk: 5, esg: 92, preferred: true },
-    { name: "Global Systems Inc.", savings: -1.5, otd: 70, risk: 80, esg: 60, preferred: false },
-    { name: "Nordic Office Solutions", savings: 5.5, otd: 95, risk: 20, esg: 89, preferred: true }
-];
+// Global suppliers array populated from API
+let mockSuppliers = [];
+
+// Fetch Procurements API to build supplier metrics
+async function loadSuppliersFromAPI() {
+    try {
+        // Fetch up to 1000 records for aggregation
+        const res = await fetch('http://localhost:8000/api/procurements?limit=1000');
+        if (!res.ok) throw new Error('API response not ok');
+        const json = await res.json();
+        const data = json.data || [];
+        
+        // Group by Supplier_Name
+        const supplierMap = {};
+        data.forEach(row => {
+            if (row.Category !== 'IT Software') return; // Only process IT Software for recommendation module
+            
+            const name = row.Supplier_Name;
+            if (!name) return;
+            
+            if (!supplierMap[name]) {
+                supplierMap[name] = { 
+                    name: name, count: 0, sum_savings: 0, 
+                    sum_otd: 0, sum_risk: 0, sum_esg: 0,
+                    preferred: row.Preferred_Supplier === 'Yes'
+                };
+            }
+            
+            supplierMap[name].count++;
+            supplierMap[name].sum_savings += parseFloat(row.Savings_Pct || 0);
+            supplierMap[name].sum_otd += (row.On_Time_Delivery === 'Yes' ? 100 : 0);
+            supplierMap[name].sum_risk += parseFloat(row.Supplier_Risk || 0);
+            supplierMap[name].sum_esg += parseFloat(row.Supplier_ESG_Score || 0);
+        });
+        
+        // Calculate averages
+        mockSuppliers = Object.values(supplierMap).map(s => {
+            return {
+                name: s.name,
+                savings: +(s.sum_savings / s.count).toFixed(2),
+                otd: +(s.sum_otd / s.count).toFixed(1),
+                risk: +(s.sum_risk / s.count).toFixed(1),
+                esg: +(s.sum_esg / s.count).toFixed(1),
+                preferred: s.preferred
+            };
+        });
+        
+        // Fallback if no IT Software data
+        if (mockSuppliers.length === 0) {
+            mockSuppliers = [
+                { name: "Demo IT Vendor (No Data)", savings: 5.0, otd: 90, risk: 20, esg: 70, preferred: true }
+            ];
+        }
+        
+        // Default render
+        if (typeof window.switchScenario === 'function') {
+            window.switchScenario('cost');
+        }
+    } catch (e) {
+        console.error("Failed to load procurements API:", e);
+    }
+}
+
+// Automatically load suppliers on script load
+document.addEventListener('DOMContentLoaded', () => {
+    loadSuppliersFromAPI();
+});
 
 window.switchScenario = function(scenario) {
     // Update button active states
