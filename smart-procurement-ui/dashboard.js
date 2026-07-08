@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const predictionResult = document.getElementById('prediction-result');
     const valPredSavings = document.getElementById('val-pred-savings');
     const valPredAmount = document.getElementById('val-pred-amount');
-    const predictionResult = document.getElementById('prediction-result');
     
     if (btnPredict) {
         btnPredict.addEventListener('click', async () => {
