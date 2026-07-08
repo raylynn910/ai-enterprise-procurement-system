@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: smart-procurement-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 將本地端的程式碼與資料掛載進容器，這樣改 code 就不需要重 build
+      - ./backend:/app/backend
+      - ./dataset:/app/dataset
+    # 開發環境開啟熱重載 (reload) 功能
+    command: >
+      bash -c "python import_data.py && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
