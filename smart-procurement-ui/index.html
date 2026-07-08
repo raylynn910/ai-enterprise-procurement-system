@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 驅動企業採購智慧決策系統</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="logo">
+                <i class="ph ph-cpu"></i>
+                <h2>SmartProcure</h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active"><i class="ph ph-squares-four"></i> 決策儀表板</a>
+                <a href="#" class="nav-item"><i class="ph ph-list-dashes"></i> 訂單管理</a>
+                <a href="#" class="nav-item"><i class="ph ph-chart-line-up"></i> 市場趨勢 (PMI)</a>
+                <a href="#" class="nav-item"><i class="ph ph-warning"></i> 異常警報</a>
+            </nav>
+            <div class="user-profile">
+                <img src="https://i.pravatar.cc/150?img=68" alt="User" class="avatar">
+                <div class="user-info">
+                    <span class="user-name">新人採購員</span>
+                    <span class="user-role">採購部</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar glass-panel">
+                <div class="search-bar">
+                    <i class="ph ph-magnifying-glass"></i>
+                    <input type="text" placeholder="搜尋訂單編號 (e.g., PO-00001)...">
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn"><i class="ph ph-bell"></i><span class="badge">3</span></button>
+                    <button class="icon-btn"><i class="ph ph-gear"></i></button>
+                </div>
+            </header>
+
+            <div class="dashboard-header">
+                <h1>採購單防呆與決策輔助</h1>
+                <p>訂單編號: <strong id="po-number">PO-00001</strong> | 日期: <span id="po-date">09/05/2024</span></p>
+            </div>
+
+            <div class="dashboard-grid">
+                <!-- 1. 採購單基本盤 (Context) -->
+                <section class="card glass-panel context-card">
+                    <div class="card-header">
+                        <h3><i class="ph ph-receipt"></i> 採購單基本資訊</h3>
+                    </div>
+                    <div class="context-grid">
+                        <div class="context-item">
+                            <span class="label">買什麼 (Category)</span>
+                            <span class="value" id="val-category">Raw Materials / Steel Sheet</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="label">數量 (Quantity)</span>
+                            <span class="value highlight-text" id="val-quantity">41 KG</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="label">供應商 (Supplier)</span>
+                            <span class="value" id="val-supplier">SunRise Manufacturing</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="label">供應商評級 / ESG</span>
+                            <span class="value"><span class="badge tier-1" id="val-tier">Tier 1</span> <span class="badge esg" id="val-esg">ESG: 41.6</span></span>
+                        </div>
+                        <div class="context-item">
+                            <span class="label">單價 (Unit Price)</span>
+                            <span class="value" id="val-unit-price">£ 6.55</span>
+                        </div>
+                        <div class="context-item">
+                            <span class="label">總金額 (Total Inc Tax)</span>
+                            <span class="value highlight-amount" id="val-total">£ 281.98</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. AI 決策輔助與預警 (Core Value) -->
+                <section class="card glass-panel ai-card">
+                    <div class="card-header ai-header">
+                        <h3><i class="ph ph-brain"></i> AI 決策輔助</h3>
+                        <span class="status-indicator warning"><i class="ph ph-warning-circle"></i> 注意風險</span>
+                    </div>
+                    
+                    <div class="ai-metrics">
+                        <!-- 交期風險紅綠燈 -->
+                        <div class="metric-box delay-risk">
+                            <div class="circular-progress warning" style="--progress: 78;">
+                                <div class="inner-circle">78%</div>
+                            </div>
+                            <h4>交期延遲風險</h4>
+                            <p>高風險機率</p>
+                        </div>
+
+                        <!-- 總體經濟與市場燈號 (PMI) -->
+                        <div class="metric-box pmi-risk">
+                            <div class="traffic-light">
+                                <div class="light red active"></div>
+                                <div class="light yellow"></div>
+                                <div class="light green"></div>
+                            </div>
+                            <h4>原物料價格趨勢 (PMI)</h4>
+                            <p class="trend-text red-text"><i class="ph ph-trend-up"></i> 看漲 (成本上升風險)</p>
+                        </div>
+                    </div>
+
+                    <div class="tags-container">
+                        <span class="alert-tag danger"><i class="ph ph-prohibit"></i> 單一來源 (Single Source)</span>
+                        <span class="alert-tag warning"><i class="ph ph-money"></i> 脫軌採購 (Maverick Spend)</span>
+                    </div>
+
+                    <div class="ai-suggestion">
+                        <h4><i class="ph ph-lightbulb"></i> AI 建議行動</h4>
+                        <p>此供應商歷史前置天數長 (Lead Time: <span id="val-leadtime">50</span> 天)，且外部原物料價格看漲。建議<strong>提早 5 天下單</strong>並鎖定價格，避免斷料與成本超支。</p>
+                        <div class="action-buttons">
+                            <button class="btn btn-primary" onclick="logAction('approve_early')">確認提早下單</button>
+                            <button class="btn btn-secondary" onclick="logAction('ignore_risk')">忽略風險 (需寫理由)</button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. SHAP 理由解釋 (Trust Building) -->
+                <section class="card glass-panel shap-card">
+                    <div class="card-header">
+                        <h3><i class="ph ph-list-magnifying-glass"></i> AI 判斷依據 (SHAP 解析)</h3>
+                    </div>
+                    <div class="shap-explanation">
+                        <p class="shap-summary">AI 判定為「高風險」，主要是因為以下因素：</p>
+                        
+                        <div class="shap-bar-chart">
+                            <div class="shap-row">
+                                <span class="shap-label">前置天數過長 (50天)</span>
+                                <div class="shap-bar-container"><div class="shap-bar positive" style="width: 80%;"></div></div>
+                                <span class="shap-value positive">+0.42</span>
+                            </div>
+                            <div class="shap-row">
+                                <span class="shap-label">外部 PMI 顯示原物料短缺</span>
+                                <div class="shap-bar-container"><div class="shap-bar positive" style="width: 65%;"></div></div>
+                                <span class="shap-value positive">+0.28</span>
+                            </div>
+                            <div class="shap-row">
+                                <span class="shap-label">付款條件不佳 (Net 30)</span>
+                                <div class="shap-bar-container"><div class="shap-bar positive" style="width: 45%;"></div></div>
+                                <span class="shap-value positive">+0.15</span>
+                            </div>
+                            <div class="shap-row">
+                                <span class="shap-label">單一來源依賴 (Single Source)</span>
+                                <div class="shap-bar-container"><div class="shap-bar positive" style="width: 30%;"></div></div>
+                                <span class="shap-value positive">+0.11</span>
+                            </div>
+                            <div class="shap-row">
+                                <span class="shap-label">供應商 Tier 1 (降低風險)</span>
+                                <div class="shap-bar-container"><div class="shap-bar negative" style="width: 25%;"></div></div>
+                                <span class="shap-value negative">-0.08</span>
+                            </div>
+                        </div>
+                        <div class="shap-legend">
+                            <span class="legend-item"><span class="color-box positive"></span> 增加延遲風險</span>
+                            <span class="legend-item"><span class="color-box negative"></span> 降低延遲風險</span>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            
+            <div id="log-console" class="log-console glass-panel">
+                <h4><i class="ph ph-terminal"></i> 系統 Log 紀錄 (模擬)</h4>
+                <div class="log-content" id="log-content">
+                    [System] UI 載入完成。<br>
+                    [System] CSV 資料 (PO-00001) 載入成功。<br>
+                    [System] 獲取外部 PMI 資料 (模擬): { status: 'Expansion', raw_material_trend: 'Up', confidence: 0.85 }<br>
+                </div>
+            </div>
+
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

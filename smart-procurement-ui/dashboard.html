@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartProcure 戰略決策平台</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="logo">
+                <i class="ph ph-cpu"></i>
+                <h2>SmartProcure</h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-target="view-overview"><i class="ph ph-squares-four"></i> 總覽頁</a>
+                <a href="#" class="nav-item" data-target="view-prediction"><i class="ph ph-calculator"></i> 議價預測頁</a>
+                <a href="#" class="nav-item" data-target="view-risk"><i class="ph ph-warning-octagon"></i> 風險訂單頁</a>
+                <a href="#" class="nav-item" data-target="view-supplier"><i class="ph ph-buildings"></i> 供應商分析頁</a>
+                <a href="#" class="nav-item" data-target="view-reports"><i class="ph ph-file-text"></i> 報表頁</a>
+            </nav>
+            <div class="user-profile">
+                <img src="https://i.pravatar.cc/150?img=11" alt="User" class="avatar">
+                <div class="user-info">
+                    <span class="user-name">資深決策官</span>
+                    <span class="user-role">採購戰略部</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar glass-panel">
+                <div class="search-bar">
+                    <i class="ph ph-magnifying-glass"></i>
+                    <input type="text" placeholder="搜尋類別、供應商或模型狀態...">
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn"><i class="ph ph-bell"></i><span class="badge">2</span></button>
+                    <button class="icon-btn"><i class="ph ph-gear"></i></button>
+                </div>
+            </header>
+
+            <!-- VIEW: Overview -->
+            <div id="view-overview" class="view-section active">
+                <div class="dashboard-header">
+                    <h1>總覽 (Overview)</h1>
+                    <p>Data Refresh: <span id="val-refresh-time">Today, 08:00 AM</span> | 範圍: 2024 Q3</p>
+                </div>
+
+                <div class="kpi-grid">
+                    <div class="kpi-card glass-panel">
+                        <div class="kpi-icon primary"><i class="ph ph-currency-circle-dollar"></i></div>
+                        <div class="kpi-details">
+                            <h4>預估節省金額</h4>
+                            <div class="kpi-value" id="val-est-savings">$124,500 <span class="trend up"><i class="ph ph-trend-up"></i> +5.2%</span></div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel">
+                        <div class="kpi-icon warning"><i class="ph ph-shield-warning"></i></div>
+                        <div class="kpi-details">
+                            <h4>平均風險分數</h4>
+                            <div class="kpi-value" id="val-avg-risk">42 / 100 <span class="status-tag success">安全</span></div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel">
+                        <div class="kpi-icon danger"><i class="ph ph-warning"></i></div>
+                        <div class="kpi-details">
+                            <h4>高風險訂單數</h4>
+                            <div class="kpi-value warning-text" id="val-high-risk-count">14 筆 <span class="status-tag danger">需關注</span></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Placeholder for future overview charts -->
+                <div class="card glass-panel" style="min-height: 300px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
+                    <i class="ph ph-chart-line-up" style="font-size: 3rem; margin-right: 1rem;"></i> 
+                    <span id="ph-overview-chart">此處預留給整體預算消耗或歷史趨勢圖表串接</span>
+                </div>
+            </div>
+
+            <!-- VIEW: Bargain Prediction -->
+            <div id="view-prediction" class="view-section">
+                <div class="dashboard-header">
+                    <h1>議價預測 (Bargain Prediction)</h1>
+                    <p>輸入採購條件，AI 模型將為您預測潛在的節省率 (Savings Pct)。</p>
+                </div>
+                
+                <div class="prediction-layout">
+                    <!-- Input Form -->
+                    <div class="card glass-panel">
+                        <div class="card-header">
+                            <h3><i class="ph ph-faders"></i> 輸入預測參數</h3>
+                        </div>
+                        <form id="prediction-form" class="custom-form">
+                            <div class="form-group">
+                                <label for="input-supplier">供應商 (Supplier)</label>
+                                <select id="input-supplier" class="form-control">
+                                    <option value="S001">CloudTech Solutions</option>
+                                    <option value="S002">Global Systems Inc.</option>
+                                    <option value="S003">Agile Softworks</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="input-contract">合約類別 (Contract)</label>
+                                <select id="input-contract" class="form-control">
+                                    <option value="C001">年度框架協議 (Annual Framework)</option>
+                                    <option value="C002">單次採購 (Spot Buy)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="input-quantity">數量 (Quantity)</label>
+                                <input type="number" id="input-quantity" class="form-control" value="100" min="1">
+                            </div>
+                            <div class="form-group">
+                                <label for="input-budget">預算金額 (Budget - USD)</label>
+                                <input type="number" id="input-budget" class="form-control" value="50000" min="1">
+                            </div>
+                            <button type="button" class="btn btn-primary btn-block mt-4" id="btn-predict"><i class="ph ph-magic-wand"></i> 執行預測</button>
+                        </form>
+                    </div>
+
+                    <!-- Result Panel -->
+                    <div class="card glass-panel result-panel" id="prediction-result" style="display: none;">
+                        <div class="card-header">
+                            <h3><i class="ph ph-chart-polar"></i> 預測結果</h3>
+                        </div>
+                        <div class="result-content text-center">
+                            <h4 class="text-muted">預測節省率 (Savings Pct)</h4>
+                            <div class="result-value success-text" id="val-pred-savings">+8.5%</div>
+                            <p class="mt-2">預估可節省金額: <strong id="val-pred-amount">$4,250</strong></p>
+                            
+                            <div class="tags-container mt-4 justify-center">
+                                <span class="alert-tag warning" id="tag-pred-reason1"><i class="ph ph-info"></i> 歷史議價空間大</span>
+                                <span class="alert-tag success" id="tag-pred-reason2"><i class="ph ph-info"></i> 數量達折扣門檻</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VIEW: Risk Orders -->
+            <div id="view-risk" class="view-section">
+                <div class="dashboard-header">
+                    <h1>風險訂單 (Risk Orders)</h1>
+                    <p>列出前 10% 高風險訂單、原因與建議處理方式。</p>
+                </div>
+
+                <div class="card glass-panel">
+                    <table class="data-table" id="risk-table">
+                        <thead>
+                            <tr>
+                                <th>PO 編號</th>
+                                <th>供應商</th>
+                                <th>預測超支</th>
+                                <th>高風險原因 (SHAP 摘要)</th>
+                                <th>建議行動</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong id="val-risk-po1">PO-9921</strong></td>
+                                <td id="val-risk-sup1">Legacy IT Partners</td>
+                                <td class="danger-text" id="val-risk-amt1">-3.5%</td>
+                                <td id="val-risk-reason1">近期漲價頻率高、歷史合約均價高</td>
+                                <td><button class="btn btn-sm btn-secondary"><i class="ph ph-handshake"></i> 重新議價</button></td>
+                            </tr>
+                            <tr>
+                                <td><strong id="val-risk-po2">PO-9945</strong></td>
+                                <td id="val-risk-sup2">Global Systems Inc.</td>
+                                <td class="danger-text" id="val-risk-amt2">-2.1%</td>
+                                <td id="val-risk-reason2">交期可能延宕、PMI 看漲</td>
+                                <td><button class="btn btn-sm btn-primary"><i class="ph ph-arrows-left-right"></i> 更換供應商</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- VIEW: Supplier Analysis -->
+            <div id="view-supplier" class="view-section">
+                <div class="dashboard-header">
+                    <h1>供應商分析 (Supplier Analysis)</h1>
+                    <p>供應商 Tier、Region、ESG Score 與歷史爭議情況追蹤。</p>
+                </div>
+
+                <div class="card glass-panel">
+                    <table class="data-table" id="supplier-table">
+                        <thead>
+                            <tr>
+                                <th>供應商名稱</th>
+                                <th>Tier</th>
+                                <th>Region</th>
+                                <th>ESG Score</th>
+                                <th>歷史爭議 (Controversies)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td id="val-sup-name1"><strong>CloudTech Solutions</strong></td>
+                                <td><span class="badge tier-1" id="val-sup-tier1">Tier 1</span></td>
+                                <td id="val-sup-reg1">North America</td>
+                                <td id="val-sup-esg1" class="success-text">85 (Excellent)</td>
+                                <td id="val-sup-cont1">0 (無爭議紀錄)</td>
+                            </tr>
+                            <tr>
+                                <td id="val-sup-name2"><strong>Legacy IT Partners</strong></td>
+                                <td><span class="badge" style="border:1px solid gray;color:gray;" id="val-sup-tier2">Tier 3</span></td>
+                                <td id="val-sup-reg2">Europe</td>
+                                <td id="val-sup-esg2" class="danger-text">45 (Poor)</td>
+                                <td id="val-sup-cont2" class="warning-text">2 (延遲交貨, 合約糾紛)</td>
+                            </tr>
+                            <tr>
+                                <td id="val-sup-name3"><strong>Agile Softworks</strong></td>
+                                <td><span class="badge tier-1" id="val-sup-tier3">Tier 1</span></td>
+                                <td id="val-sup-reg3">Asia Pacific</td>
+                                <td id="val-sup-esg3" class="success-text">92 (Leader)</td>
+                                <td id="val-sup-cont3">0 (無爭議紀錄)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- VIEW: Reports -->
+            <div id="view-reports" class="view-section">
+                <div class="dashboard-header">
+                    <h1>報表匯出 (Reports)</h1>
+                    <p>輸出採購週報/月報與模型判斷原因摘要 (SHAP)。</p>
+                </div>
+
+                <div class="report-actions mb-4">
+                    <button class="btn btn-primary" id="btn-weekly-report"><i class="ph ph-file-pdf"></i> 產出採購週報</button>
+                    <button class="btn btn-secondary" id="btn-monthly-report"><i class="ph ph-file-xls"></i> 產出採購月報</button>
+                </div>
+
+                <div class="card glass-panel" id="report-preview">
+                    <div class="card-header">
+                        <h3><i class="ph ph-file-text"></i> 報表預覽：採購風險與 SHAP 摘要 (2024-W36)</h3>
+                    </div>
+                    <div class="report-content" id="val-report-content" style="line-height: 1.8; color: var(--text-muted);">
+                        <p><strong>執行摘要：</strong></p>
+                        <p>本週共審核 152 筆訂單，預估節省總額達 $12,400。模型成功攔截 3 筆高風險 (超支) 訂單。</p>
+                        <hr style="border-color: rgba(255,255,255,0.1); margin: 1rem 0;">
+                        <p><strong>AI (SHAP) 決策摘要：</strong></p>
+                        <ul>
+                            <li><strong>PO-9921 擋單主因：</strong> 供應商 (Legacy IT) 近期漲價頻率高於市場均值 (+1.5% 風險貢獻)。</li>
+                            <li><strong>PO-9945 建議更換供應商：</strong> 單一來源依賴過高，且外部 PMI 顯示該地區交期可能延宕。</li>
+                        </ul>
+                        <p class="mt-4"><em id="ph-report-dynamic">此區塊文字預留給後端 LLM 或報表生成引擎回傳結果...</em></p>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
