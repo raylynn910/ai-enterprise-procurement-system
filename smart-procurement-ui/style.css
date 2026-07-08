@@ -1,16 +1,17 @@
 :root {
-    --bg-main: #0b0f19;
-    --bg-glass: rgba(18, 25, 38, 0.65);
-    --border-glass: rgba(255, 255, 255, 0.08);
-    --text-main: #e2e8f0;
+    --bg-main: #060913;
+    --bg-glass: rgba(10, 15, 30, 0.7);
+    --border-glass: rgba(255, 255, 255, 0.1);
+    --text-main: #f1f5f9;
     --text-muted: #94a3b8;
-    --primary: #3b82f6;
-    --primary-glow: rgba(59, 130, 246, 0.4);
+    --primary: #00f0ff;
+    --primary-glow: rgba(0, 240, 255, 0.6);
     --secondary: #1e293b;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --danger-glow: rgba(239, 68, 68, 0.4);
+    --success: #39ff14;
+    --warning: #ffb300;
+    --danger: #ff0055;
+    --danger-glow: rgba(255, 0, 85, 0.6);
+    --accent-purple: #b026ff;
     
     --font-family: 'Inter', sans-serif;
 }
@@ -27,10 +28,11 @@ body {
     color: var(--text-main);
     min-height: 100vh;
     overflow-x: hidden;
-    /* Create a subtle animated background mesh */
+    /* Create an animated background mesh for Cyberpunk vibe */
     background-image: 
-        radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
-        radial-gradient(circle at 85% 30%, rgba(239, 68, 68, 0.1), transparent 25%);
+        radial-gradient(circle at 15% 50%, rgba(0, 240, 255, 0.15), transparent 30%),
+        radial-gradient(circle at 85% 30%, rgba(176, 38, 255, 0.15), transparent 30%),
+        radial-gradient(circle at 50% 80%, rgba(255, 0, 85, 0.1), transparent 40%);
     background-attachment: fixed;
 }
 
@@ -45,7 +47,31 @@ body {
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border: 1px solid var(--border-glass);
-    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
+    position: relative;
+    overflow: hidden;
+}
+
+/* Cyberpunk Flowing Light Border */
+.glass-panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    border-radius: inherit;
+    padding: 2px;
+    background: linear-gradient(45deg, transparent 40%, var(--primary) 50%, transparent 60%);
+    background-size: 200% 200%;
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    animation: flowLight 4s linear infinite;
+    opacity: 0.6;
+}
+
+@keyframes flowLight {
+    0% { background-position: 100% 0%; }
+    100% { background-position: -100% 100%; }
 }
 
 /* Sidebar */
@@ -99,9 +125,11 @@ body {
 }
 
 .nav-item.active {
-    background: rgba(59, 130, 246, 0.15);
+    background: rgba(0, 240, 255, 0.15);
     color: var(--primary);
-    border-left: 3px solid var(--primary);
+    border-right: 4px solid var(--primary);
+    box-shadow: inset -10px 0 20px -10px var(--primary-glow);
+    text-shadow: 0 0 8px var(--primary-glow);
 }
 
 .user-profile {
@@ -530,15 +558,27 @@ span.badge {
 
 .btn-primary {
     background: var(--primary);
-    color: #fff;
-    box-shadow: 0 4px 15px var(--primary-glow);
+    color: #000;
+    font-weight: 700;
+    box-shadow: 0 0 15px var(--primary-glow);
+    border: 1px solid var(--primary);
 }
-
 .btn-primary:hover {
-    background: #2563eb;
+    background: #00e0ef;
+    box-shadow: 0 0 25px var(--primary-glow);
     transform: translateY(-2px);
 }
-
+.btn-danger {
+    background: transparent;
+    color: var(--danger);
+    border: 1px solid var(--danger);
+    box-shadow: 0 0 10px var(--danger-glow);
+}
+.btn-danger:hover {
+    background: var(--danger);
+    color: #fff;
+    box-shadow: 0 0 20px var(--danger-glow);
+}
 .btn-secondary {
     background: rgba(255, 255, 255, 0.05);
     color: var(--text-main);
