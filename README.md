@@ -13,21 +13,21 @@
 2. 🔮 **議價空間預測 (Bargain Prediction)**
    - 在實際下單前，輸入供應商、合約類別、預算與數量，AI 自動預測潛在的**節省率 (Savings Pct)** 與預估金額，協助採購人員掌握談判籌碼。
 3. ⚠️ **供應商推薦模型 (Supplier Recommendation Model)**
-   - 假設同樣要買 IT Software，哪個供應商比較值得優先考慮？推薦不是只看誰採購金額最高，而是綜合比較節省率、準時率
-     供應商風險、供應商狀態、ESG、Preferred Supplier 與單一來源風險。支援依據不同採購情境 (降本導向、急件採購、
-     合規導向) 動態調整推薦權重。
+   - 同樣要買 IT Software，哪個供應商比較值得優先考慮？推薦不是只看誰採購金額最高，而是綜合比較節省率、準時率、供應      商風險、供應商狀態、ESG、Preferred Supplier 與單一來源風險。
    - 推薦分數設計：   Savings Score 30%：平均 Savings Pct 越高越好。
      Delivery Score 25%：On Time Delivery 準時率越高越好。
      Risk Score 15%：Supplier Risk 越低越好。
      ESG Score 15%：Supplier ESG Score 越高越好。
      Preferred / Status 15%：Preferred Supplier 與 Supplier Status 越佳越好。
      Single Source Penalty -5%：單一來源比例越高，扣分越多。
-   - 推薦結果應搭配SHAP解釋，例如節省率高、準時率高、低風險、ESG 高，而不是只給分數。
+   - 推薦結果應搭配解釋，例如節省率高、準時率高、低風險、ESG 高，而不是只給分數。
 
-4. 📄 **報表與日誌稽核 (Reports & Audit Logs)**
+4. 🏢 **供應商動態分析 (Supplier Analysis & Recommendation)**
+   - 整合供應商分級 (Tier)、地區 (Region)、ESG 永續評分與歷史爭議紀錄 (Controversies)。
+   - 支援依據不同採購情境 (降本導向、急件採購、合規導向) 動態調整推薦權重。
+5. 📄 **報表與日誌稽核 (Reports & Audit Logs)**
    - 一鍵匯出採購週報/月報，並附帶 LLM 生成的決策摘要。
-   - **完善的稽核機制**：系統內所有的「更新 (Update)」與「刪除 (Delete)」操作均會被記錄至日誌，支援操作者、時間戳
-     記與資料變更對比 (Before/After) 查詢。
+   - **完善的稽核機制**：系統內所有的「更新 (Update)」與「刪除 (Delete)」操作均會被記錄至日誌，支援操作者、時間戳記與資料變更對比 (Before/After) 查詢。
 
 ## 🛠️ 技術架構 (Technology Stack)
 
