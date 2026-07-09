@@ -26,6 +26,12 @@
     *   與前端溝通格式，開發預測功能的 Mock API。
 *   **階段五：系統整合與容器化**
     *   撰寫 Dockerfile 整合開發環境。
+*   **階段六：模型整合與前端 UX 優化計畫 (動態補水機制) (已完成)**
+    *   **設計理念**：不讓使用者盲目填表。透過 API (`/api/form-options`, `/api/context/...`) 即時回傳歷史均價與供應商戰力卡片資料，作為前端填表時的錨定參考 (Anchor Pricing)。
+    *   **後台資料補水 (Data Enrichment)**：前端僅需傳送 `category`, `supplier_id`, `quantity`, `budget_price` 等 4 個基礎維度。後端自動從 SQLite 資料庫查出其餘 6 個特徵 (如 `supplier_risk`, `maverick_spend` 等)，補齊 10 個維度後再交由 ML 模型預測，大幅降低前端表單的複雜度與使用者的認知負擔。
+    *   **真實 AI 引擎掛載**：已成功載入模型組的 XGBoost 雙階模型 (`reg_model.pkl`, `cls_refiner.pkl`)，全面取代原本的假資料模擬邏輯。
+*   **階段七：儀表板趨勢圖表串接 (已完成)**
+    *   開發 `GET /api/trends/monthly`，底層改寫 SQL 以動態計算「平均節省率 (Average Savings %)」與「準交率 (On-Time Delivery Rate)」，取代無意義的單純計數，幫助主管更直覺追蹤採購 KPI。
 
 ## 3. 程式碼規範 (Coding Standards)
 *   **API 格式**：所有的 API 回傳格式必須統一為 JSON，並包含狀態碼 (status code)、訊息 (message) 與資料 (data)。

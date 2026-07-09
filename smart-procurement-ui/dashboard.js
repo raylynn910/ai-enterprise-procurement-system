@@ -46,38 +46,43 @@ document.addEventListener('DOMContentLoaded', () => {
             btnPredict.disabled = true;
 
             const supplier = document.getElementById('input-supplier').value;
-            const category = document.getElementById('input-category') ? document.getElementById('input-category').value : 'IT Software';
+            const category = document.getElementById('input-contract') ? document.getElementById('input-contract').value : 'IT Software';
+            const quantity = parseInt(document.getElementById('input-quantity').value) || 100;
             const budget = parseFloat(document.getElementById('input-budget').value) || 0;
+            const budgetUnitPrice = budget / quantity; // API expects unit price
             
             try {
-                // Call POST /api/predict/supplier-risk API
-                const response = await fetch('http://localhost:8000/api/predict/supplier-risk', {
+                // Call POST /api/predict/savings API
+                const response = await fetch('http://localhost:8000/api/predict/savings', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         supplier_id: supplier || 'SUP-001',
-                        category: category
+                        category: category,
+                        quantity: quantity,
+                        budget_price: budgetUnitPrice
                     })
                 });
                 
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
                 const result = await response.json();
                 
-                // For demonstration, map risk score back to savings for the original UI (or just display the risk output)
-                // The UI expects Savings Pct and Savings Amount.
-                // We'll calculate fake savings based on risk_score (lower risk = higher savings)
-                let fakeSavingsPct = 10 - (result.risk_score / 10);
-                let fakeAmount = (budget * fakeSavingsPct) / 100;
+                let savingsPct = result.pred_savings_pct;
+                let savingsAmount = (budget * savingsPct) / 100;
                 
                 // Update UI
-                if (fakeSavingsPct > 0) {
-                    valPredSavings.innerText = '+' + fakeSavingsPct.toFixed(1) + '%';
+                if (savingsPct > 0) {
+                    valPredSavings.innerText = '+' + savingsPct.toFixed(1) + '%';
                     valPredSavings.className = 'result-value success-text';
                 } else {
-                    valPredSavings.innerText = fakeSavingsPct.toFixed(1) + '%';
+                    valPredSavings.innerText = savingsPct.toFixed(1) + '%';
                     valPredSavings.className = 'result-value danger-text';
                 }
                 
-                valPredAmount.innerText = '$' + fakeAmount.toFixed(2);
+                valPredAmount.innerText = '$' + savingsAmount.toFixed(2);
                 
                 // Show recommendation text in a small alert below the amount
                 let recDiv = document.getElementById('pred-recommendation');
@@ -88,14 +93,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     recDiv.style.fontSize = '0.9rem';
                     predictionResult.appendChild(recDiv);
                 }
-                recDiv.innerHTML = `<strong class="${result.risk_level === 'High' ? 'danger-text' : (result.risk_level === 'Medium' ? 'warning-text' : 'success-text')}">風險等級: ${result.risk_level}</strong><br/>${result.recommendation}`;
+                
+                const statusColor = result.pred_class_code === 2 ? 'danger-text' : (result.pred_class_code === 1 ? 'warning-text' : 'success-text');
+                
+                recDiv.innerHTML = `
+                    <strong class="${statusColor}">${result.status_text}</strong><br/>
+                    <div style="margin-top: 5px; padding: 5px; background: rgba(255,255,255,0.05); border-radius: 4px; font-size: 0.8rem; color: #94a3b8;">
+                        <i class="ph ph-magic-wand"></i> <strong>AI 自動補水特徵:</strong><br/>
+                        供應商風險: ${result.enriched_features.supplier_risk} | 越權紀錄: ${result.enriched_features.maverick_spend} | 首選供應商: ${result.enriched_features.preferred_supplier}
+                    </div>
+                `;
                 
                 // Show result panel
                 predictionResult.style.display = 'block';
                 
             } catch (error) {
                 console.error('API Error:', error);
-                alert('API 呼叫失敗，請確認 FastAPI 後端已啟動。');
+                alert('預測 API 呼叫失敗，請確認 FastAPI 後端已啟動且模型載入正常。');
             } finally {
                 // Reset button
                 btnPredict.innerHTML = '<i class="ph ph-magic-wand"></i> 執行預測';
@@ -167,18 +181,6 @@ async function loadSuppliersFromAPI() {
             ];
         }
 
-        // Populate prediction dropdown
-        const selectElement = document.getElementById('input-supplier');
-        if (selectElement && mockSuppliers.length > 0) {
-            selectElement.innerHTML = ''; // clear old hardcoded options
-            mockSuppliers.forEach(sup => {
-                const opt = document.createElement('option');
-                opt.value = sup.name;
-                opt.textContent = sup.name;
-                selectElement.appendChild(opt);
-            });
-        }
-        
         // Default render
         if (typeof window.switchScenario === 'function') {
             window.switchScenario('cost');
@@ -188,10 +190,46 @@ async function loadSuppliersFromAPI() {
     }
 }
 
-// Automatically load suppliers on script load
+// Automatically load suppliers and options on script load
 document.addEventListener('DOMContentLoaded', () => {
+    loadFormOptionsFromAPI();
     loadSuppliersFromAPI();
 });
+
+// Fetch Form Options from Backend
+async function loadFormOptionsFromAPI() {
+    try {
+        const res = await fetch('http://localhost:8000/api/form-options');
+        if (!res.ok) throw new Error('Form options API failed');
+        const json = await res.json();
+        
+        // Populate Categories (Contracts)
+        const catSelect = document.getElementById('input-contract');
+        if (catSelect && json.categories) {
+            catSelect.innerHTML = '';
+            json.categories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat;
+                opt.textContent = cat;
+                catSelect.appendChild(opt);
+            });
+        }
+        
+        // Populate Suppliers
+        const supSelect = document.getElementById('input-supplier');
+        if (supSelect && json.suppliers) {
+            supSelect.innerHTML = '';
+            json.suppliers.forEach(sup => {
+                const opt = document.createElement('option');
+                opt.value = sup.id; // Send Supplier_ID to the API, not Name!
+                opt.textContent = sup.name;
+                supSelect.appendChild(opt);
+            });
+        }
+    } catch (e) {
+        console.error("Failed to load form options:", e);
+    }
+}
 
 window.switchScenario = function(scenario) {
     // Update button active states
