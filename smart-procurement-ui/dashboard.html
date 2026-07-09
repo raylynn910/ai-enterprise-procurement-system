@@ -7,6 +7,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <!-- Phosphor Icons -->
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -77,10 +79,12 @@
                         </div>
                     </div>
                 </div>
-                <!-- Placeholder for future overview charts -->
-                <div class="card glass-panel" style="min-height: 300px; display: flex; align-items: center; justify-content: center; color: var(--text-muted);">
-                    <i class="ph ph-chart-line-up" style="font-size: 3rem; margin-right: 1rem;"></i> 
-                    <span id="ph-overview-chart">此處預留給整體預算消耗或歷史趨勢圖表串接</span>
+                <!-- Overview Chart -->
+                <div class="card glass-panel">
+                    <h3 style="margin-top: 0; margin-bottom: 1rem;">每月採購總量趨勢 (Monthly Trend)</h3>
+                    <div style="position: relative; height: 350px; width: 100%;">
+                        <canvas id="monthlyTrendChart"></canvas>
+                    </div>
                 </div>
             </div>
 

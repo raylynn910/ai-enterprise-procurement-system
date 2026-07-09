@@ -15,6 +15,10 @@
 - **[階段三]** 初始化後端框架 `main.py` (FastAPI)，並完成第一支核心 API `GET /api/procurements`，支援分頁與跨網域(CORS)存取。
 - **[階段四]** 於 `main.py` 中新增 `POST /api/predict/supplier-risk` Mock API，以供前端開發「供應商風險評估」UI 使用。
 - **[階段五]** 新增 `backend/Dockerfile` 與專案根目錄的 `docker-compose.yml`，實現後端環境的容器化，包含自動匯入資料與啟動 API 伺服器。
+- **[功能新增]** 於 `main.py` 中新增 `GET /api/trends/monthly` API，提供「平均節省率 (Average Savings %)」與「準交率 (On-Time Delivery Rate)」的歷史趨勢數據，以供前端繪製採購績效儀表板圖表。
+- **[前端開發]** 刪除舊版 `index.html`，統一以 `dashboard.html` 作為唯一的 SPA 決策儀表板入口。
+- **[前端開發]** 於 `dashboard.html` 整合 Chart.js，實作「每月採購績效雙軸混合圖表 (Dual-axis Mixed Chart)」，即時串接後端 `GET /api/trends/monthly` 數據，展示節省率(折線)與準交率(長條圖)對比。
+- **[自動化]** 於專案根目錄新增 `start_demo.bat` 一鍵啟動腳本，大幅簡化展示流程 (自動啟動後端並開啟瀏覽器載入 UI)。
 
 ### Changed
 - (尚無變更)

@@ -114,3 +114,56 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         recommendation=recommendation,
         is_mock=True
     )
+
+@app.get("/api/trends/monthly")
+def get_monthly_trends():
+    """
+    取得歷史採購單的月份趨勢統計 (包含訂單數、總數量等)
+    用以串接前端的整體預算消耗或歷史趨勢圖表。
+    """
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(status_code=500, detail="Database not found.")
+        
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 我們改為計算兩個在採購實務上非常有價值的趨勢指標：
+    # 1. avg_savings_pct (平均節省率): 追蹤採購議價績效。
+    # 2. on_time_delivery_rate (準交率): 追蹤供應商整體交貨品質。
+    query = """
+        SELECT 
+            PO_Year, 
+            PO_Month, 
+            AVG(CAST(Savings_Pct AS FLOAT)) as avg_savings_pct,
+            SUM(CASE WHEN On_Time_Delivery = 'Yes' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as on_time_delivery_rate
+        FROM procurement_data 
+        GROUP BY PO_Year, PO_Month
+    """
+    cursor.execute(query)
+    rows = cursor.fetchall()
+    
+    # 將月份轉為數字以利排序
+    month_map = {
+        "January": 1, "February": 2, "March": 3, "April": 4, 
+        "May": 5, "June": 6, "July": 7, "August": 8, 
+        "September": 9, "October": 10, "November": 11, "December": 12,
+        "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, 
+        "Jun": 6, "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12
+    }
+    
+    data = []
+    for row in rows:
+        r = dict(row)
+        month_name = r["PO_Month"]
+        r["month_num"] = month_map.get(month_name, 99)
+        data.append(r)
+        
+    # 按年份與月份排序
+    data = sorted(data, key=lambda x: (int(x["PO_Year"]), x["month_num"]))
+    
+    conn.close()
+    
+    return {
+        "status": "success",
+        "data": data
+    }

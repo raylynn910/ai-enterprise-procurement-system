@@ -37,9 +37,10 @@
    ```
 2. 進入專案目錄：
    ```bash
-   cd ai-enterprise-procurement-system/smart-procurement-ui
+   cd ai-enterprise-procurement-system
    ```
-3. 雙擊開啟 `dashboard.html`，即可在瀏覽器中預覽 SPA 決策儀表板。
+3. **一鍵啟動 (推薦)**：
+   雙擊執行根目錄下的 `start_demo.bat`，系統會自動在背景啟動 FastAPI 後端伺服器，並開啟瀏覽器載入 `dashboard.html` 儀表板。
 
 ## 📖 文件參考 (Documentation)
 

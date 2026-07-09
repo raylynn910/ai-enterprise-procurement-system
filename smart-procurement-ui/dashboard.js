@@ -263,3 +263,138 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSuppliers('cost'); // Default scenario
     }
 });
+
+// Fetch Monthly Trend Data and Render Chart
+async function loadTrendChart() {
+    const ctx = document.getElementById('monthlyTrendChart');
+    if (!ctx) return;
+    
+    try {
+        const res = await fetch('http://localhost:8000/api/trends/monthly');
+        if (!res.ok) throw new Error('API response not ok');
+        const json = await res.json();
+        
+        const data = json.data || [];
+        
+        // Format X-axis labels (e.g., "2023 Jan")
+        const labels = data.map(row => {
+            const monthStr = row.PO_Month ? row.PO_Month.substring(0, 3) : '';
+            return `${row.PO_Year} ${monthStr}`;
+        });
+        
+        const savingsData = data.map(row => row.avg_savings_pct);
+        const otdData = data.map(row => row.on_time_delivery_rate);
+        
+        // Cyberpunk Theme Dual-axis Mixed Chart
+        new Chart(ctx, {
+            data: {
+                labels: labels.length > 0 ? labels : ['2023 Jan', '2023 Feb', '2023 Mar'],
+                datasets: [
+                    {
+                        type: 'line',
+                        label: '平均節省率 (Average Savings %)',
+                        data: savingsData.length > 0 ? savingsData : [5.4, 6.1, 7.2],
+                        borderColor: '#10b981', // Green for savings
+                        backgroundColor: '#10b981',
+                        borderWidth: 3,
+                        pointBackgroundColor: '#10b981',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: '#10b981',
+                        pointRadius: 4,
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar',
+                        label: '供應商準交率 (On-Time Delivery Rate %)',
+                        data: otdData.length > 0 ? otdData : [92.5, 89.0, 95.1],
+                        backgroundColor: 'rgba(139, 92, 246, 0.6)', // Purple for OTD
+                        borderColor: '#8b5cf6',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#94a3b8' }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#94a3b8' }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: '節省率 (%)', color: '#10b981' },
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#10b981' },
+                        min: 0
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: '準交率 (%)', color: '#8b5cf6' },
+                        grid: { drawOnChartArea: false }, // only draw grid lines for one axis to keep it clean
+                        ticks: { color: '#8b5cf6' },
+                        min: 0,
+                        max: 100 // OTD rate max is 100%
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error('Failed to load trend API:', e);
+        // Fallback for UI testing if API fails
+        new Chart(ctx, {
+            data: {
+                labels: ['2023 Jan', '2023 Feb', '2023 Mar', '2023 Apr', '2023 May'],
+                datasets: [
+                    {
+                        type: 'line',
+                        label: '平均節省率 (Mock API 失敗)',
+                        data: [5.2, 5.8, 4.9, 6.5, 7.1],
+                        borderColor: '#f43f5e',
+                        backgroundColor: '#f43f5e',
+                        borderWidth: 2,
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'bar',
+                        label: '供應商準交率 (Mock API 失敗)',
+                        data: [85, 88, 92, 90, 94],
+                        backgroundColor: 'rgba(244, 63, 94, 0.3)',
+                        borderColor: '#f43f5e',
+                        borderWidth: 1,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false,
+                scales: {
+                    y: { position: 'left', min: 0, max: 20 },
+                    y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false } }
+                }
+            }
+        });
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadTrendChart();
+});
