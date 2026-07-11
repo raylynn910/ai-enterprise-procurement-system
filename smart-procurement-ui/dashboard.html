@@ -10,6 +10,7 @@
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
     <div class="app-container">
@@ -25,6 +26,7 @@
                 <a href="#" class="nav-item" data-target="view-recommendation"><i class="ph ph-ranking"></i> 供應商推薦模型</a>
                 <a href="#" class="nav-item" data-target="view-risk"><i class="ph ph-warning-octagon"></i> 風險訂單清單</a>
                 <a href="#" class="nav-item" data-target="view-supplier"><i class="ph ph-buildings"></i> 供應商分析頁</a>
+                <a href="#" class="nav-item" data-target="view-onboarding"><i class="ph ph-user-plus"></i> 供應商准入評估</a>
                 <a href="#" class="nav-item" data-target="view-reports"><i class="ph ph-file-text"></i> 報表頁</a>
             </nav>
             <div class="user-profile">
@@ -76,6 +78,20 @@
                         <div class="kpi-details">
                             <h4>高風險訂單數</h4>
                             <div class="kpi-value warning-text" id="val-high-risk-count">14 筆 <span class="status-tag danger">需關注</span></div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel">
+                        <div class="kpi-icon primary" style="color:var(--success); border-color:var(--success);"><i class="ph ph-leaf"></i></div>
+                        <div class="kpi-details">
+                            <h4>平均 ESG 評分</h4>
+                            <div class="kpi-value" id="val-avg-esg">78 / 100 <span class="status-tag success">健康</span></div>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass-panel">
+                        <div class="kpi-icon danger"><i class="ph ph-detective"></i></div>
+                        <div class="kpi-details">
+                            <h4>越權採購 (Maverick)</h4>
+                            <div class="kpi-value warning-text" id="val-maverick-count">5 筆 <span class="status-tag danger">需關注</span></div>
                         </div>
                     </div>
                 </div>
@@ -162,7 +178,7 @@
                     <div class="scenario-toggles" style="display: flex; gap: 1rem; margin-top: 1rem; padding: 0 1.5rem 1.5rem;">
                         <button class="btn btn-primary" id="btn-scenario-cost" onclick="switchScenario('cost')"><i class="ph ph-piggy-bank"></i> 降本優先 (Cost-driven)</button>
                         <button class="btn btn-secondary" id="btn-scenario-urgent" onclick="switchScenario('urgent')"><i class="ph ph-clock-countdown"></i> 急件優先 (Urgent)</button>
-                        <button class="btn btn-secondary" id="btn-scenario-compliance" onclick="switchScenario('compliance')"><i class="ph ph-leaf"></i> 合規優先 (Compliance)</button>
+                        <button class="btn btn-secondary" id="btn-scenario-compliance" onclick="switchScenario('compliance')"><i class="ph ph-shield-check"></i> 低風險與合規導向 (Risk & Compliance)</button>
                     </div>
                 </div>
 
@@ -206,31 +222,7 @@
                                 <th>建議行動</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong id="val-risk-po1">PO-9921</strong></td>
-                                <td id="val-risk-sup1">Legacy IT Partners</td>
-                                <td class="danger-text" id="val-risk-amt1">-3.5%</td>
-                                <td><span class="status-tag danger">Yes</span></td>
-                                <td><span class="status-tag danger">Yes</span></td>
-                                <td><button class="btn btn-sm btn-secondary" onclick="alert('【系統提示】\\n已調閱歷史合約！此供應商 (Legacy IT Partners) 近期漲價頻率高於市場均值 1.5%，SHAP 分析判定為高風險。')"><i class="ph ph-handshake"></i> 審查合約</button></td>
-                            </tr>
-                            <tr>
-                                <td><strong id="val-risk-po2">PO-9945</strong></td>
-                                <td id="val-risk-sup2">Global Systems Inc.</td>
-                                <td class="warning-text" id="val-risk-amt2">-1.2%</td>
-                                <td><span class="status-tag success">No</span></td>
-                                <td><span class="status-tag danger">Yes</span></td>
-                                <td><button class="btn btn-sm btn-primary" onclick="document.querySelector('[data-target=\'view-recommendation\']').click();"><i class="ph ph-arrows-left-right"></i> 尋找替代源</button></td>
-                            </tr>
-                            <tr>
-                                <td><strong id="val-risk-po3">PO-9950</strong></td>
-                                <td id="val-risk-sup3">Unknown Vendor LLC</td>
-                                <td class="danger-text" id="val-risk-amt3">-5.8%</td>
-                                <td><span class="status-tag danger">Yes</span></td>
-                                <td><span class="status-tag success">No</span></td>
-                                <td><button class="btn btn-sm btn-danger" onclick="alert('【日誌稽核紀錄成功】\\n訂單 PO-9950 已被強制凍結 (On Hold)，並通知請購部門主管。')"><i class="ph ph-x-circle"></i> 凍結訂單</button></td>
-                            </tr>
+                        <tbody id="risk-table-body">
                         </tbody>
                     </table>
                 </div>
@@ -248,36 +240,138 @@
                         <thead>
                             <tr>
                                 <th>供應商名稱</th>
-                                <th>Tier</th>
-                                <th>Region</th>
+                                <th>Risk</th>
                                 <th>ESG Score</th>
-                                <th>歷史爭議 (Controversies)</th>
+                                <th>Delivery (OTD)</th>
+                                <th>爭議 (Controversies)</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
                                 <td id="val-sup-name1"><strong>CloudTech Solutions</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-tier1">Tier 1</span></td>
-                                <td id="val-sup-reg1">North America</td>
-                                <td id="val-sup-esg1" class="success-text">85 (Excellent)</td>
-                                <td id="val-sup-cont1">0 (無爭議紀錄)</td>
+                                <td><span class="badge tier-1" id="val-sup-risk1">Low</span></td>
+                                <td id="val-sup-esg1" class="success-text">85</td>
+                                <td id="val-sup-otd1" class="success-text">95% (0 Days Late)</td>
+                                <td id="val-sup-cont1">0</td>
                             </tr>
                             <tr>
                                 <td id="val-sup-name2"><strong>Legacy IT Partners</strong></td>
-                                <td><span class="badge" style="border:1px solid gray;color:gray;" id="val-sup-tier2">Tier 3</span></td>
-                                <td id="val-sup-reg2">Europe</td>
-                                <td id="val-sup-esg2" class="danger-text">45 (Poor)</td>
-                                <td id="val-sup-cont2" class="warning-text">2 (延遲交貨, 合約糾紛)</td>
+                                <td><span class="badge" style="background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);" id="val-sup-risk2">High</span></td>
+                                <td id="val-sup-esg2" class="danger-text">45</td>
+                                <td id="val-sup-otd2" class="danger-text">60% (14 Days Late)</td>
+                                <td id="val-sup-cont2" class="warning-text">2</td>
                             </tr>
                             <tr>
                                 <td id="val-sup-name3"><strong>Agile Softworks</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-tier3">Tier 1</span></td>
-                                <td id="val-sup-reg3">Asia Pacific</td>
-                                <td id="val-sup-esg3" class="success-text">92 (Leader)</td>
-                                <td id="val-sup-cont3">0 (無爭議紀錄)</td>
+                                <td><span class="badge tier-1" id="val-sup-risk3">Low</span></td>
+                                <td id="val-sup-esg3" class="success-text">92</td>
+                                <td id="val-sup-otd3" class="success-text">98% (0 Days Late)</td>
+                                <td id="val-sup-cont3">0</td>
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+
+            <!-- VIEW: New Supplier Onboarding -->
+            <div id="view-onboarding" class="view-section">
+                <div class="dashboard-header">
+                    <h1>新供應商准入評估 (New Supplier Assessment)</h1>
+                    <p>透過 OpenCorporates、OpenSanctions 及 AI 網路檢索，快速評估未知供應商的合規與營運風險。</p>
+                </div>
+
+                <div class="prediction-layout">
+                    <!-- Input Form -->
+                    <div class="card glass-panel">
+                        <div class="card-header">
+                            <h3><i class="ph ph-identification-card"></i> 輸入供應商資訊</h3>
+                        </div>
+                        <form id="onboarding-form" class="custom-form">
+                            <div class="form-group">
+                                <label for="ob-name">供應商名稱 (Supplier Name)</label>
+                                <input type="text" id="ob-name" class="form-control" placeholder="e.g. Acme Corporation" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="ob-id">統一編號 / 註冊號 (Company ID) <span style="color:var(--text-muted);font-size:0.75rem;">(選填)</span></label>
+                                <input type="text" id="ob-id" class="form-control" placeholder="e.g. 12345678">
+                            </div>
+                            <div class="form-group">
+                                <label for="ob-region">所在地區 (Region)</label>
+                                <select id="ob-region" class="form-control">
+                                    <option value="North America">北美 (North America)</option>
+                                    <option value="Europe">歐洲 (Europe)</option>
+                                    <option value="Asia Pacific">亞太地區 (Asia Pacific)</option>
+                                    <option value="Emerging Markets">新興市場 (Emerging Markets)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="ob-category">主要供應類別 (Category)</label>
+                                <select id="ob-category" class="form-control">
+                                    <option value="IT Software">IT 軟體</option>
+                                    <option value="Hardware">硬體設備</option>
+                                    <option value="Office Supplies">辦公用品</option>
+                                    <option value="Raw Materials">原物料</option>
+                                </select>
+                            </div>
+                            <button type="button" class="btn btn-primary btn-block mt-4" id="btn-assess-supplier"><i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描</button>
+                        </form>
+                    </div>
+
+                    <!-- Result Panel -->
+                    <div class="card glass-panel result-panel" id="onboarding-result" style="display: none; border-top: 4px solid var(--success);">
+                        <div class="card-header">
+                            <h3><i class="ph ph-file-magnifying-glass"></i> 綜合風險評估報告</h3>
+                        </div>
+                        <div class="result-content" style="padding: 1rem;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:1rem;">
+                                <div>
+                                    <h4 style="color:var(--text-muted); margin-bottom:0.5rem;">整體建議決策</h4>
+                                    <div class="result-value success-text" id="ob-res-decision" style="margin:0; font-size:2rem;">核准 (Approve)</div>
+                                </div>
+                                <div style="text-align:right;">
+                                    <span class="badge" id="ob-res-risk" style="font-size:1rem; padding:0.4rem 0.8rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);">Risk: Low</span>
+                                </div>
+                            </div>
+                            
+                            <!-- Radar Chart Container -->
+                            <div id="ob-radar-chart" style="min-height: 300px; margin: 1rem 0;"></div>
+                            
+                            <div style="margin-bottom: 1.5rem;">
+                                <h4 style="font-size:0.9rem; margin-bottom:0.5rem; color:var(--text-main);">AI 永續與爭議評分 (ESG Score)</h4>
+                                <div style="display:flex; align-items:center; gap:1rem;">
+                                    <div style="flex:1; height:12px; background:rgba(255,255,255,0.1); border-radius:6px; overflow:hidden;">
+                                        <div id="ob-res-esgbar" style="height:100%; width:85%; background:var(--primary); transition:width 1s;"></div>
+                                    </div>
+                                    <div style="font-weight:700; color:var(--primary);" id="ob-res-esgval">85 / 100</div>
+                                </div>
+                            </div>
+
+                            <h4 style="font-size:0.9rem; margin-bottom:0.8rem; color:var(--text-main); border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:0.5rem;">開源情報來源分析</h4>
+                            <ul style="list-style:none; padding:0; display:flex; flex-direction:column; gap:0.8rem; font-size:0.85rem; color:var(--text-muted);">
+                                <li style="display:flex; gap:0.8rem; align-items:start;">
+                                    <i class="ph ph-check-circle" style="color:var(--success); font-size:1.2rem;"></i>
+                                    <div>
+                                        <strong style="color:var(--text-main);">OpenCorporates (合法性)</strong><br>
+                                        <span id="ob-log-corp">實體註冊於當地商業司，狀態活躍 (Active)。</span>
+                                    </div>
+                                </li>
+                                <li style="display:flex; gap:0.8rem; align-items:start;">
+                                    <i class="ph ph-check-circle" style="color:var(--success); font-size:1.2rem;" id="ob-icon-sanc"></i>
+                                    <div>
+                                        <strong style="color:var(--text-main);">OpenSanctions (制裁掃描)</strong><br>
+                                        <span id="ob-log-sanc">未比對到全球制裁名單或 PEP 黑名單。</span>
+                                    </div>
+                                </li>
+                                <li style="display:flex; gap:0.8rem; align-items:start;">
+                                    <i class="ph ph-info" style="color:var(--primary); font-size:1.2rem;" id="ob-icon-news"></i>
+                                    <div>
+                                        <strong style="color:var(--text-main);">AI 負面新聞網搜 (Adverse Media)</strong><br>
+                                        <span id="ob-log-news">掃描過去 5 年的當地新聞，未發現重大勞工或環保裁罰。</span>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             </div>
 

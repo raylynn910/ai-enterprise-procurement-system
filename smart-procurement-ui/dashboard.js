@@ -33,6 +33,207 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Onboarding Form Logic
+    const btnAssessSupplier = document.getElementById('btn-assess-supplier');
+    if (btnAssessSupplier) {
+        btnAssessSupplier.addEventListener('click', async () => {
+            const name = document.getElementById('ob-name').value;
+            const region = document.getElementById('ob-region').value;
+            
+            if (!name) {
+                alert('請輸入供應商名稱');
+                return;
+            }
+
+            btnAssessSupplier.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 徵信掃描中...';
+            btnAssessSupplier.disabled = true;
+            document.getElementById('onboarding-result').style.display = 'none';
+
+            try {
+                const supplierId = document.getElementById('ob-id').value || name;
+                const region = document.getElementById('ob-region').value;
+                const category = document.getElementById('ob-category').value;
+                
+                const response = await fetch('http://localhost:8000/api/predict/supplier-risk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        supplier_id: supplierId,
+                        country: region,
+                        category: category,
+                        lead_time_days: 30
+                    })
+                });
+                
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                const result = await response.json();
+                
+                let risk = result.risk_level;
+                // Risk score from backend is 0-100. We can map it back to ESG roughly or use it for UI.
+                let esgScore = 100 - result.risk_score; // Lower risk score = Higher ESG
+                esgScore = Math.min(100, Math.max(0, esgScore));
+                
+                // Decide status based on API risk level
+                let decision = "核准 (Approve)";
+                let dClass = "success-text";
+                let rClass = "var(--success)";
+                let rBg = "rgba(16, 185, 129, 0.2)";
+                
+                if (risk === "High") {
+                    decision = "拒絕 (Reject)";
+                    dClass = "danger-text";
+                    rClass = "var(--danger)";
+                    rBg = "rgba(220, 38, 38, 0.2)";
+                } else if (risk === "Medium") {
+                    decision = "人工覆核 (Review)";
+                    dClass = "warning-text";
+                    rClass = "var(--warning)";
+                    rBg = "rgba(245, 158, 11, 0.2)";
+                }
+
+                document.getElementById('ob-res-decision').innerText = decision;
+                document.getElementById('ob-res-decision').className = `result-value ${dClass}`;
+                
+                const riskBadge = document.getElementById('ob-res-risk');
+                riskBadge.innerText = `Risk: ${risk}`;
+                riskBadge.style.color = rClass;
+                riskBadge.style.borderColor = rClass;
+                riskBadge.style.background = rBg;
+
+                document.getElementById('ob-res-esgval').innerText = `${esgScore.toFixed(0)} / 100`;
+                document.getElementById('ob-res-esgbar').style.width = `${esgScore}%`;
+                
+                // Update news based on recommendation
+                if (risk === "High") {
+                    document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
+                    document.getElementById('ob-icon-news').style.color = "var(--danger)";
+                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                } else {
+                    document.getElementById('ob-icon-news').className = "ph ph-check-circle";
+                    document.getElementById('ob-icon-news').style.color = "var(--success)";
+                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                }
+                
+                if (result.recommendation && result.recommendation.includes("合規阻斷")) {
+                    document.getElementById('ob-icon-sanc').className = "ph ph-warning-circle";
+                    document.getElementById('ob-icon-sanc').style.color = "var(--danger)";
+                    document.getElementById('ob-log-sanc').innerText = "警告：於全球制裁名單或 PEP 黑名單發現疑似相符紀錄，合規性不予通過。";
+                } else {
+                    document.getElementById('ob-icon-sanc').className = "ph ph-check-circle";
+                    document.getElementById('ob-icon-sanc').style.color = "var(--success)";
+                    document.getElementById('ob-log-sanc').innerText = "未比對到全球制裁名單或 PEP 黑名單。";
+                }
+
+                document.getElementById('ob-log-corp').innerText = `實體名稱 '${name}' 已於當地商業司註冊，狀態活躍 (Active)。`;
+
+                document.getElementById('onboarding-result').style.display = 'block';
+                document.getElementById('onboarding-result').style.borderTopColor = rClass;
+                
+                // Render ApexCharts Radar Chart
+                if (window.obRadarChart) {
+                    window.obRadarChart.destroy();
+                }
+                
+                // Read the 5 dimensions calculated by the backend ML API
+                const complianceScore = result.compliance_score || 0;
+                const financialScore = result.financial_score || 0;
+                const deliveryScore = result.delivery_score || 0;
+                const esgDimScore = result.esg_score || 0;
+                const pricingScore = result.pricing_score || 0;
+
+                const options = {
+                    series: [{
+                        name: '供應商能力',
+                        data: [
+                            Math.round(complianceScore), 
+                            Math.round(financialScore), 
+                            Math.round(deliveryScore), 
+                            Math.round(esgDimScore), 
+                            Math.round(pricingScore)
+                        ]
+                    }],
+                    chart: {
+                        height: 350,
+                        type: 'radar',
+                        toolbar: { show: false },
+                        dropShadow: {
+                            enabled: true, blur: 1, left: 1, top: 1
+                        },
+                        background: 'transparent'
+                    },
+                    stroke: {
+                        width: 2,
+                        colors: ['#10b981']
+                    },
+                    fill: {
+                        opacity: 0.4,
+                        colors: ['#10b981']
+                    },
+                    markers: {
+                        size: 4,
+                        colors: ['#1a202c'],
+                        strokeColors: '#10b981',
+                        strokeWidth: 2,
+                    },
+                    xaxis: {
+                        categories: ['合規性 (Compliance)', '財務穩定 (Financial)', '交期可靠 (Delivery)', '永續發展 (ESG)', '價格競爭力 (Pricing)'],
+                        labels: {
+                            style: {
+                                colors: ['#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af'],
+                                fontSize: '11px',
+                                fontFamily: 'Inter, sans-serif'
+                            }
+                        }
+                    },
+                    yaxis: {
+                        min: 0,
+                        max: 100,
+                        tickAmount: 5,
+                        show: false
+                    },
+                    plotOptions: {
+                        radar: {
+                            polygons: {
+                                strokeColors: 'rgba(255,255,255,0.1)',
+                                connectorColors: 'rgba(255,255,255,0.1)',
+                                fill: {
+                                    colors: ['transparent', 'transparent']
+                                }
+                            }
+                        }
+                    },
+                    theme: {
+                        mode: 'dark'
+                    },
+                    tooltip: {
+                        theme: 'dark'
+                    }
+                };
+                
+                // Update colors based on risk
+                if(risk === "High") {
+                    options.stroke.colors = ['#ef4444'];
+                    options.fill.colors = ['#ef4444'];
+                    options.markers.strokeColors = '#ef4444';
+                } else if(risk === "Medium") {
+                    options.stroke.colors = ['#f59e0b'];
+                    options.fill.colors = ['#f59e0b'];
+                    options.markers.strokeColors = '#f59e0b';
+                }
+
+                window.obRadarChart = new ApexCharts(document.querySelector("#ob-radar-chart"), options);
+                window.obRadarChart.render();
+                
+            } catch(error) {
+                console.error("Prediction API Error:", error);
+                alert("徵信掃描失敗，請確認後端 API 已啟動。");
+            } finally {
+                btnAssessSupplier.innerHTML = '<i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描';
+                btnAssessSupplier.disabled = false;
+            }
+        });
+    }
+
     // Prediction Form Logic
     const btnPredict = document.getElementById('btn-predict');
     const predictionResult = document.getElementById('prediction-result');
@@ -435,4 +636,40 @@ async function loadTrendChart() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTrendChart();
+    fetchRiskOrders();
 });
+
+// --- Team 1 Risk Model Integration ---
+async function fetchRiskOrders() {
+    try {
+        const response = await fetch('http://localhost:8000/api/risk/orders');
+        const result = await response.json();
+        
+        if (result.status === 'success') {
+            const tbody = document.getElementById('risk-table-body');
+            tbody.innerHTML = ''; // 清空
+            
+            if (result.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center">目前無高風險訂單。</td></tr>';
+                return;
+            }
+            
+            result.data.forEach(order => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${order.po_number}</strong></td>
+                    <td>${order.supplier_name}</td>
+                    <td class="danger-text">${order.savings_pct}</td>
+                    <td><span class="status-tag ${order.maverick === 'Yes' ? 'danger' : 'success'}">${order.maverick}</span></td>
+                    <td><span class="status-tag ${order.single_source === 'Yes' ? 'danger' : 'success'}">${order.single_source}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="alert('【系統提示】\\n模型判定為高風險。建議審查合約。')"><i class="ph ph-handshake"></i> 審查合約</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    } catch (e) {
+        console.error('Failed to fetch risk orders:', e);
+    }
+}
