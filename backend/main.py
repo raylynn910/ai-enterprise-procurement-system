@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query, Body
 from pydantic import BaseModel, Field
 from typing import Optional
 from fastapi.middleware.cors import CORSMiddleware
+import finance_gatherer
 import sqlite3
 import os
 import pickle
@@ -205,6 +206,7 @@ class SupplierRiskResponse(BaseModel):
     delivery_score: float = Field(..., description="交期可靠分數")
     esg_score: float = Field(..., description="永續發展分數")
     pricing_score: float = Field(..., description="價格競爭力分數")
+    osint_sources: list = Field([], description="真實新聞來源")
 
 @app.post("/api/predict/supplier-risk", response_model=SupplierRiskResponse)
 def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
@@ -229,6 +231,7 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         conn.close()
         
         osint_summary_msg = ""
+        osint_sources_list = []
         if row:
             esg_score = row['Supplier_ESG_Score']
             on_time = row['On_Time_Delivery']
@@ -237,6 +240,7 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         else:
             # 啟用 OSINT 進行新廠商資料搜集
             try:
+                import esg_gatherer
                 from osint_gatherer import gather_supplier_intelligence
                 # For OSINT, supplier_id usually contains the company name from the frontend
                 osint_result = gather_supplier_intelligence(request.supplier_id, request.country)
@@ -245,6 +249,9 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
                 po_status = osint_result["po_status"]
                 on_time = "Yes" if days_late <= 0 else "No"
                 osint_summary_msg = osint_result["osint_summary"]
+                osint_sources_list = osint_result.get("osint_sources", [])
+                
+                auth_esg = esg_gatherer.get_authoritative_esg(request.supplier_id)
             except Exception as e:
                 print("OSINT Error:", e)
                 # Fallback 預設值
@@ -252,7 +259,9 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
                 on_time = 'Yes'
                 days_late = 0
                 po_status = 'Closed'
+                osint_sources_list = []
             
+        is_guardrail_blocked = False
         if osint_summary_msg == "找不到該公司相關資訊":
             # 直接標記為高風險，拒絕幽靈公司
             risk_level = 'High'
@@ -277,11 +286,13 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
             risk_level = pred_class
             
             # --- Rule-based Guardrails (合規與負面新聞強制阻斷機制) ---
-            is_guardrail_blocked = False
             if "高度示警" in osint_summary_msg:
-                risk_level = 'High'
-                risk_score = max(90.0, 100.0 - esg_score)  # 強制給予高風險分數
-                is_guardrail_blocked = True
+                if 'auth_esg' in locals() and auth_esg:
+                    osint_summary_msg += f"\n\n【ESG 權威豁免】已抓取國際真實 ESG 評等 ({auth_esg['rating']})，解除一般新聞負面字詞阻斷。"
+                else:
+                    risk_level = 'High'
+                    risk_score = max(90.0, 100.0 - esg_score)  # 強制給予高風險分數
+                    is_guardrail_blocked = True
                 
         if osint_summary_msg != "找不到該公司相關資訊":
             if risk_level == 'High':
@@ -305,8 +316,30 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         d_late = float(days_late) if days_late > 0 else 0.0
         d_score = max(10.0, 100.0 - (d_late * 3.5)) # 0 days -> 100, 20 days -> 30
         
-        # Deterministic pseudo-random pricing score based on supplier string length or hash
-        p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
+        if 'auth_esg' in locals() and auth_esg:
+            esg_score = auth_esg['esg_score']
+            c_score = auth_esg['compliance']
+            d_score = auth_esg['delivery_score']
+            
+        # --- Real Financial OSINT API ---
+        fin_data = finance_gatherer.get_financial_features(request.supplier_id)
+        if fin_data and fin_data.get('quoteType') == 'EQUITY':
+            market_cap = fin_data.get('marketCap', 0)
+            if market_cap > 100_000_000_000: # 100B+
+                f_score = 95.0
+                p_score = 90.0
+            elif market_cap > 10_000_000_000: # 10B+
+                f_score = 88.0
+                p_score = 82.0
+            elif market_cap > 1_000_000_000: # 1B+
+                f_score = 80.0
+                p_score = 75.0
+            else:
+                f_score = 75.0
+                p_score = 70.0
+        else:
+            # Fallback to Risk Proxy if API timeouts or company is private
+            p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
         
         return SupplierRiskResponse(
             supplier_id=request.supplier_id,
@@ -318,7 +351,8 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
             financial_score=round(f_score, 1),
             delivery_score=round(d_score, 1),
             esg_score=round(float(esg_score), 1),
-            pricing_score=round(p_score, 1)
+            pricing_score=round(p_score, 1),
+            osint_sources=osint_sources_list
         )
     except Exception as e:
         print(f"Prediction Error: {e}")
@@ -348,7 +382,8 @@ def _mock_supplier_risk(request: SupplierRiskRequest):
         financial_score=90.0 if risk_level == "Low" else 60.0,
         delivery_score=95.0 if risk_level == "Low" else 40.0,
         esg_score=100.0 - risk_score,
-        pricing_score=75.0
+        pricing_score=75.0,
+        osint_sources=[]
     )
 
 @app.get("/api/trends/monthly")

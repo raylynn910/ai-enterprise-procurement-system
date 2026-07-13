@@ -5,7 +5,7 @@ echo ========================================================
 echo.
 
 echo [1/2] Starting FastAPI Backend Server (Localhost:8000)...
-start "Backend Server" cmd /k "cd backend && uvicorn main:app --reload"
+start "Backend Server" cmd /k "cd backend && .\.venv\Scripts\activate && uvicorn main:app --reload"
 
 echo.
 echo Waiting for backend to initialize (3 seconds)...

@@ -40,8 +40,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const name = document.getElementById('ob-name').value;
             const region = document.getElementById('ob-region').value;
             
-            if (!name) {
-                alert('請輸入供應商名稱');
+            if (!name || name.trim().length < 2) {
+                alert('【警告】名稱過短，請輸入有效的公司名稱！');
+                return;
+            }
+            if (!isNaN(name.replace(/ /g, ''))) {
+                alert('【警告】公司名稱不能只有數字，請確認您輸入的是正確的實體名稱！\n\n系統防呆機制：已阻擋本次異常請求。');
                 return;
             }
 
@@ -67,6 +71,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const result = await response.json();
+                
+                // --- First-layer Ghost Company Protection (防呆) ---
+                if (result.recommendation && result.recommendation.includes("找不到該公司相關資訊")) {
+                    alert(`【警告】查無「${name}」的公司登記或情報資料！\n\n系統防呆機制已啟動：請確認公司名稱是否輸入正確，或該公司未在當地合法設立行號。`);
+                    btnAssessSupplier.innerHTML = '執行 AI 盡職調查';
+                    btnAssessSupplier.disabled = false;
+                    document.getElementById('onboarding-result').style.display = 'none';
+                    return; // Abort UI rendering
+                }
                 
                 let risk = result.risk_level;
                 // Risk score from backend is 0-100. We can map it back to ESG roughly or use it for UI.
@@ -125,6 +138,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 document.getElementById('ob-log-corp').innerText = `實體名稱 '${name}' 已於當地商業司註冊，狀態活躍 (Active)。`;
+
+                // --- OSINT Modal Logic ---
+                const btnViewOsint = document.getElementById('btn-view-osint');
+                if (btnViewOsint) {
+                    const osintModal = document.getElementById('osint-modal');
+                    const closeOsintModal = document.getElementById('close-osint-modal');
+                    const osintContainer = document.getElementById('osint-sources-container');
+                    
+                    if (result.osint_sources && result.osint_sources.length > 0) {
+                        btnViewOsint.style.display = 'inline-block';
+                        btnViewOsint.onclick = function() {
+                            osintContainer.innerHTML = '';
+                            result.osint_sources.forEach(src => {
+                                const card = document.createElement('div');
+                                card.style.background = 'rgba(255, 255, 255, 0.05)';
+                                card.style.padding = '1rem';
+                                card.style.borderRadius = '8px';
+                                card.style.border = '1px solid rgba(255,255,255,0.05)';
+                                card.innerHTML = `
+                                    <h4 style="margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 500;">
+                                        <a href="${src.url}" target="_blank" style="color: var(--primary); text-decoration: none; display: flex; align-items: center; gap: 4px;">
+                                            ${src.title} <i class="ph ph-arrow-square-out" style="font-size: 0.9rem;"></i>
+                                        </a>
+                                    </h4>
+                                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted); line-height: 1.5;">${src.snippet}</p>
+                                `;
+                                osintContainer.appendChild(card);
+                            });
+                            osintModal.style.display = 'flex';
+                        };
+                    } else {
+                        btnViewOsint.style.display = 'none';
+                        btnViewOsint.onclick = null;
+                    }
+                    
+                    if (closeOsintModal && osintModal) {
+                        closeOsintModal.onclick = function() {
+                            osintModal.style.display = 'none';
+                        };
+                        osintModal.onclick = function(e) {
+                            if (e.target === osintModal) {
+                                osintModal.style.display = 'none';
+                            }
+                        };
+                    }
+                }
 
                 document.getElementById('onboarding-result').style.display = 'block';
                 document.getElementById('onboarding-result').style.borderTopColor = rClass;

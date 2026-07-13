@@ -27,28 +27,40 @@ def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dic
             
         search_results = wikipedia.search(supplier_name)
         if search_results:
+            # 確保標題或內文有包含公司名稱，避免維基百科的模糊推薦
             wiki_summary = wikipedia.summary(search_results[0], sentences=2, auto_suggest=False)
-            summary_text += wiki_summary + " "
-            found_info = True
+            if supplier_name.lower() in search_results[0].lower() or supplier_name.lower() in wiki_summary.lower():
+                summary_text += wiki_summary + " "
+                found_info = True
     except Exception as e:
         pass
 
     # 2. Try Tavily API (Adverse Media Search)
+    osint_sources_list = []
     try:
         from tavily import TavilyClient
         tavily = TavilyClient(api_key="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")
         
         # Craft a targeted search query for news and controversies
         if is_chinese:
-            query = f'"{supplier_name}" 新聞 OR 爭議 OR 食安 OR 違法 OR 永續'
+            query = f'"{supplier_name}" AND (新聞 OR 爭議 OR 食安 OR 違法 OR 永續)'
         else:
-            query = f'"{supplier_name}" news OR controversy OR lawsuit OR sustainability'
+            query = f'"{supplier_name}" AND (news OR controversy OR lawsuit OR sustainability)'
             
         response = tavily.search(query=query, search_depth="basic", max_results=5)
         for r in response.get("results", []):
             body = r.get("content", "")
-            summary_text += body + " "
-            found_info = True
+            title = r.get("title", "")
+            
+            # 防呆：確保該公司名字真的出現在搜尋結果中，否則可能只是查到後面的 general keyword
+            if supplier_name.lower() in body.lower() or supplier_name.lower() in title.lower():
+                summary_text += body + " "
+                osint_sources_list.append({
+                    "title": title or "News Source",
+                    "url": r.get("url", "#"),
+                    "snippet": body[:150] + "..." if len(body) > 150 else body
+                })
+                found_info = True
     except Exception as e:
         print("Tavily Search Error:", e)
 
@@ -57,7 +69,8 @@ def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dic
             "esg_score": 30.0, # High risk for ghost companies
             "days_late": 15,
             "po_status": "Pending",
-            "osint_summary": "找不到該公司相關資訊"
+            "osint_summary": "找不到該公司相關資訊",
+            "osint_sources": []
         }
 
     # 3. Simple Sentiment / Keyword Analysis
@@ -95,7 +108,8 @@ def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dic
         "esg_score": esg_score,
         "days_late": days_late,
         "po_status": "Completed", # Default
-        "osint_summary": osint_summary
+        "osint_summary": osint_summary,
+        "osint_sources": osint_sources_list
     }
 
 if __name__ == "__main__":
