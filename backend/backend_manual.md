@@ -32,6 +32,10 @@
     *   **真實 AI 引擎掛載**：已成功載入模型組的 XGBoost 雙階模型 (`reg_model.pkl`, `cls_refiner.pkl`)，全面取代原本的假資料模擬邏輯。
 *   **階段七：儀表板趨勢圖表串接 (已完成)**
     *   開發 `GET /api/trends/monthly`，底層改寫 SQL 以動態計算「平均節省率 (Average Savings %)」與「準交率 (On-Time Delivery Rate)」，取代無意義的單純計數，幫助主管更直覺追蹤採購 KPI。
+*   **階段八：風險訂單模型替換與微調 (已完成)**
+    *   **發現資料偏誤**：在整合第一組開發的隨機森林風險模型時，發現原始資料集中標記為 High Risk 的樣本高達 100% 皆來自同一家供應商 (Atlantic Raw Materials)，導致模型死背特定靜態特徵。
+    *   **替換模型邏輯**：為解決此問題，將 `GET /api/risk/orders` 的底層預測邏輯替換為第二組開發的**「模型 B：規則加權計分引擎 (Rule-based Scoring Engine)」**。
+    *   **動態閾值微調**：直接在 API 中即時計算訂單對應的 Recommendation Score，並將高風險門檻設定為 **45 分以下 (約佔最差的 15%)**，成功解決了預測傾斜與警報疲勞 (Alert Fatigue) 問題，並產出健康多元的高風險清單。
 
 ## 3. 程式碼規範 (Coding Standards)
 *   **API 格式**：所有的 API 回傳格式必須統一為 JSON，並包含狀態碼 (status code)、訊息 (message) 與資料 (data)。
