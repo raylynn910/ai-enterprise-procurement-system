@@ -25,7 +25,7 @@ IF NOT EXIST procurement.db (
 
 echo.
 echo [3/3] Starting FastAPI Backend Server (Localhost:8000)...
-start "Backend Server" cmd /k "cd backend && .venv\Scripts\activate.bat && uvicorn main:app --reload"
+start "Backend Server" cmd /k "uvicorn main:app --reload"
 
 echo.
 echo Waiting for backend to initialize (3 seconds)...
