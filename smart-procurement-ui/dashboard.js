@@ -236,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         strokeWidth: 2,
                     },
                     xaxis: {
-                        categories: ['合規性 (Compliance)', '財務穩定 (Financial)', '交期可靠 (Delivery)', '永續發展 (ESG)', '價格競爭力 (Pricing)'],
+                        categories: ['市場聲譽 (Reputation)', '財務穩定 (Financial)', '交期可靠 (Delivery)', '永續發展 (ESG)', '價格競爭力 (Pricing)'],
                         labels: {
                             style: {
                                 colors: ['#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af'],
