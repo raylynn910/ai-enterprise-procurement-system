@@ -1,9 +1,11 @@
-fastapi==0.110.0
-uvicorn==0.29.0
-pandas==2.2.1
-pydantic==2.6.4
-xgboost==2.0.3
-scikit-learn==1.4.1.post1
+# 版本改用「>=」下限，確保在較新的 Python（含 3.13）上有現成 wheel 可裝，
+# 不必在本機用 Rust/編譯器從原始碼建置（原本鎖死的舊版在 3.13 會編譯失敗）。
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pandas>=2.2.3
+pydantic>=2.9.0
+xgboost>=2.1.1
+scikit-learn>=1.5.2
 requests
 yfinance
 wikipedia
