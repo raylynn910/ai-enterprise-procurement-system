@@ -6,3 +6,6 @@ xgboost==2.0.3
 scikit-learn==1.4.1.post1
 requests
 yfinance
+wikipedia
+duckduckgo-search
+tavily-python
