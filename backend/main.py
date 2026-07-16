@@ -642,6 +642,11 @@ def recommend_suppliers(category: str, scenario: str):
             'name': row['Supplier_Name'],
             'country': row['Supplier_Country'],
             'score_text': score_str,
-            'reason': reason
+            'reason': reason,
+            'raw_metrics': {
+                'savings_pct': round(row['Avg_Savings'], 2),
+                'days_late': round(row['Avg_Days_Late'], 2),
+                'esg_score': round(row['Avg_ESG'], 2)
+            }
         })
     return results

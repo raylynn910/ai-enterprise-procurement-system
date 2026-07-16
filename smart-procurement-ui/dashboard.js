@@ -609,41 +609,134 @@ window.switchScenario = async function(scenario) {
     await fetchAndRenderSuppliers();
 };
 
+let recommendationRadarChart = null;
+let recommendationBarChart = null;
+
 async function fetchAndRenderSuppliers() {
-    const list = document.getElementById('recommendation-list');
-    if (!list) return;
+    const podiumList = document.getElementById('recommendation-list');
+    const loadingState = document.getElementById('recommendation-loading');
+    if (!podiumList) return;
     
     const categorySelect = document.getElementById('recommendation-category');
     const category = categorySelect ? categorySelect.value : 'IT Software';
     const scenario = window.currentScenario || 'cost';
 
-    list.innerHTML = '<tr><td colspan="5" style="text-align: center;"><i class="ph ph-spinner-gap ph-spin"></i> 載入推薦清單中...</td></tr>';
+    podiumList.style.display = 'none';
+    loadingState.style.display = 'block';
 
     try {
         const response = await fetch(`http://localhost:8000/api/recommend/suppliers?category=${encodeURIComponent(category)}&scenario=${encodeURIComponent(scenario)}`);
         if (!response.ok) throw new Error('API fetch failed');
         const data = await response.json();
 
-        list.innerHTML = '';
+        loadingState.style.display = 'none';
+        podiumList.style.display = 'flex';
+        podiumList.innerHTML = '';
+        
         if (data.length === 0) {
-            list.innerHTML = '<tr><td colspan="5" style="text-align: center;">該品項目前沒有符合條件的供應商</td></tr>';
+            podiumList.innerHTML = '<div style="text-align: center; color: #a0aec0;">該品項目前沒有符合條件的供應商</div>';
             return;
         }
 
+        // Render Podium Cards
         data.forEach((sup, index) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><span class="badge ${index === 0 ? 'tier-1' : ''}">${sup.rank}</span></td>
-                <td><strong>${sup.name}</strong> <small>(${sup.country})</small></td>
-                <td class="success-text" style="font-weight: bold;">${sup.score_text}</td>
-                <td><span class="alert-tag success" style="padding: 0.2rem 0.5rem;"><i class="ph ph-check-circle"></i> ${sup.reason}</span></td>
-                <td><button class="btn btn-sm btn-primary">選擇</button></td>
+            const isTop1 = index === 0;
+            const bgGradient = isTop1 ? 'linear-gradient(135deg, rgba(255,215,0,0.1) 0%, rgba(255,215,0,0.02) 100%)' : 'rgba(255, 255, 255, 0.05)';
+            const borderStyle = isTop1 ? 'border: 1px solid rgba(255, 215, 0, 0.3);' : 'border: 1px solid rgba(255, 255, 255, 0.1);';
+            const shadowStyle = isTop1 ? 'box-shadow: 0 4px 20px rgba(255, 215, 0, 0.15);' : '';
+            
+            const card = document.createElement('div');
+            card.style = `background: ${bgGradient}; ${borderStyle} ${shadowStyle} border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;`;
+            
+            card.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="width: 50px; height: 50px; border-radius: 50%; background: ${isTop1 ? '#ffd700' : '#4a5568'}; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'};">
+                        ${isTop1 ? '<i class="ph ph-crown"></i>' : `#${sup.rank}`}
+                    </div>
+                    <div>
+                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.5rem' : '1.25rem'}; color: ${isTop1 ? '#ffd700' : '#fff'};">${sup.name}</h3>
+                        <p style="margin: 0.25rem 0 0 0; color: #a0aec0; font-size: 0.9rem;">${sup.country}</p>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.25rem; font-weight: bold; color: #4ade80;">${sup.score_text}</div>
+                    <div style="font-size: 0.85rem; color: #a0aec0; margin-top: 0.25rem;"><i class="ph ph-info"></i> ${sup.reason}</div>
+                    <button class="btn btn-primary btn-sm" style="margin-top: 0.5rem; padding: 0.25rem 1rem;">選擇</button>
+                </div>
             `;
-            list.appendChild(tr);
+            podiumList.appendChild(card);
         });
+
+        // Prepare Chart Data
+        const supplierNames = data.map(d => d.name);
+        const savingsData = data.map(d => d.raw_metrics.savings_pct);
+        const otdData = data.map(d => 100 - d.raw_metrics.days_late * 5); // Rough normalization for OTD score (100 - late*5)
+        const esgData = data.map(d => d.raw_metrics.esg_score);
+        
+        // Render or Update Radar Chart
+        const radarOptions = {
+            series: [{ name: 'Savings Potential', data: savingsData },
+                     { name: 'On-Time Score', data: otdData },
+                     { name: 'ESG Score', data: esgData }],
+            chart: { type: 'radar', height: 350, toolbar: { show: false }, background: 'transparent' },
+            labels: supplierNames,
+            stroke: { width: 2 },
+            fill: { opacity: 0.2 },
+            markers: { size: 4 },
+            xaxis: {
+                labels: {
+                    style: { colors: ['#a0aec0', '#a0aec0', '#a0aec0'], fontSize: '11px', fontFamily: 'Inter' }
+                }
+            },
+            yaxis: { show: false },
+            theme: { mode: 'dark', palette: 'palette1' },
+            legend: { position: 'bottom', labels: { colors: '#fff' } }
+        };
+
+        if (recommendationRadarChart) {
+            recommendationRadarChart.destroy();
+        }
+        recommendationRadarChart = new ApexCharts(document.querySelector("#radar-chart"), radarOptions);
+        recommendationRadarChart.render();
+
+        // Render or Update Bar Chart
+        let primaryMetricData = [];
+        let primaryMetricLabel = '';
+        let primaryColor = '#4ade80';
+
+        if (scenario === 'cost') {
+            primaryMetricData = savingsData;
+            primaryMetricLabel = 'Avg Savings (%)';
+        } else if (scenario === 'urgent') {
+            primaryMetricData = data.map(d => d.raw_metrics.days_late);
+            primaryMetricLabel = 'Avg Days Late';
+            primaryColor = '#facc15';
+        } else {
+            primaryMetricData = esgData;
+            primaryMetricLabel = 'ESG Score';
+            primaryColor = '#60a5fa';
+        }
+
+        const barOptions = {
+            series: [{ name: primaryMetricLabel, data: primaryMetricData }],
+            chart: { type: 'bar', height: 250, toolbar: { show: false }, background: 'transparent' },
+            plotOptions: { bar: { horizontal: true, borderRadius: 4 } },
+            dataLabels: { enabled: true },
+            xaxis: { categories: supplierNames, labels: { style: { colors: '#a0aec0' } } },
+            yaxis: { labels: { style: { colors: '#fff', fontSize: '12px' } } },
+            colors: [primaryColor],
+            theme: { mode: 'dark' }
+        };
+
+        if (recommendationBarChart) {
+            recommendationBarChart.destroy();
+        }
+        recommendationBarChart = new ApexCharts(document.querySelector("#bar-chart"), barOptions);
+        recommendationBarChart.render();
+
     } catch (e) {
         console.error("Failed to fetch recommendations:", e);
-        list.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">載入失敗，請確認後端伺服器是否運行中</td></tr>';
+        loadingState.innerHTML = '<div style="color: #ef4444;"><i class="ph ph-warning-circle" style="font-size: 2rem;"></i><p>載入失敗，請確認後端 API 是否正常運作。</p></div>';
     }
 }
 

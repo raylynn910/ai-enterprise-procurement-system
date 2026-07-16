@@ -201,20 +201,33 @@
                     <div class="card-header">
                         <h3><i class="ph ph-list-numbers"></i> 推薦清單 (Top 3)</h3>
                     </div>
-                    <table class="data-table" id="recommendation-table">
-                        <thead>
-                            <tr>
-                                <th>排名</th>
-                                <th>供應商名稱</th>
-                                <th>推薦分數</th>
-                                <th>推薦亮點</th>
-                                <th>動作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="recommendation-list">
+                    <!-- Layout for Podium and Charts -->
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem;">
+                        
+                        <!-- Left Column: Podium Cards -->
+                        <div id="podium-container" style="display: flex; flex-direction: column; gap: 1rem;">
+                            <!-- Placeholder for loading state -->
+                            <div id="recommendation-loading" style="text-align: center; padding: 2rem; color: #a0aec0;">
+                                <i class="ph ph-spinner-gap ph-spin" style="font-size: 2rem;"></i>
+                                <p>載入推薦清單中...</p>
+                            </div>
+                            
                             <!-- Dynamic Content Inserted by dashboard.js -->
-                        </tbody>
-                    </table>
+                            <div id="recommendation-list" style="display: none; flex-direction: column; gap: 1rem;">
+                                <!-- Top 1, 2, 3 Cards go here -->
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Charts -->
+                        <div id="charts-container" style="display: flex; flex-direction: column; gap: 1rem; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.2); border-radius: 12px; padding: 1rem;">
+                            <h4 style="margin: 0; color: #a0aec0; align-self: flex-start;"><i class="ph ph-chart-polar"></i> 多維度能力分析</h4>
+                            <div id="radar-chart" style="width: 100%; max-width: 400px;"></div>
+                            
+                            <h4 style="margin: 1rem 0 0 0; color: #a0aec0; align-self: flex-start;"><i class="ph ph-chart-bar"></i> 核心指標對比</h4>
+                            <div id="bar-chart" style="width: 100%;"></div>
+                        </div>
+                        
+                    </div>
                 </div>
             </div>
 
