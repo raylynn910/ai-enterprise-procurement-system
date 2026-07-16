@@ -390,70 +390,168 @@ document.addEventListener('DOMContentLoaded', () => {
 // Global suppliers array populated from API
 let mockSuppliers = [];
 
-// Fetch Procurements API to build supplier metrics
-async function loadSuppliersFromAPI() {
+// Fetch Procurements API to build supplier metrics and overview KPIs
+async function loadDashboardData() {
     try {
-        // Fetch up to 1000 records for aggregation
-        const res = await fetch('http://localhost:8000/api/procurements?limit=1000');
+        // 1. Fetch Risk Orders for High Risk Count
+        let highRiskCount = 0;
+        try {
+            const riskRes = await fetch('http://localhost:8000/api/risk/orders');
+            if (riskRes.ok) {
+                const riskData = await riskRes.json();
+                if (riskData.data) highRiskCount = riskData.data.length;
+            }
+        } catch(e) { console.warn("Failed to fetch risk orders:", e); }
+
+        // 2. Fetch up to 2000 records for aggregation
+        const res = await fetch('http://localhost:8000/api/procurements?limit=2000');
         if (!res.ok) throw new Error('API response not ok');
         const json = await res.json();
         const data = json.data || [];
         
+        let sumSavingsPct = 0;
+        let sumEsg = 0;
+        let sumRiskNum = 0;
+        let maverickCount = 0;
+        let validRecords = 0;
+
         // Group by Supplier_Name
         const supplierMap = {};
+        
         data.forEach(row => {
-            if (row.Category !== 'IT Software') return; // Only process IT Software for recommendation module
-            
             const name = row.Supplier_Name;
             if (!name) return;
+            
+            // Overall KPIs
+            const savings = parseFloat(row.Savings_Pct) || 0;
+            const esg = parseFloat(row.Supplier_ESG_Score) || 0;
+            const isMaverick = row.Maverick_Spend === 'Yes';
+            
+            let riskNum = 50; // default medium
+            if (row.Supplier_Risk === 'Low') riskNum = 10;
+            if (row.Supplier_Risk === 'High') riskNum = 90;
+
+            sumSavingsPct += savings;
+            sumEsg += esg;
+            sumRiskNum += riskNum;
+            if (isMaverick) maverickCount++;
+            validRecords++;
             
             if (!supplierMap[name]) {
                 supplierMap[name] = { 
                     name: name, count: 0, sum_savings: 0, 
                     sum_otd: 0, sum_risk: 0, sum_esg: 0,
-                    preferred: row.Preferred_Supplier === 'Yes'
+                    preferred: row.Preferred_Supplier === 'Yes',
+                    category: row.Category,
+                    controversies: 0,
+                    risk_level: row.Supplier_Risk || 'Medium'
                 };
             }
             
             supplierMap[name].count++;
-            supplierMap[name].sum_savings += parseFloat(row.Savings_Pct || 0);
+            supplierMap[name].sum_savings += savings;
             supplierMap[name].sum_otd += (row.On_Time_Delivery === 'Yes' ? 100 : 0);
-            supplierMap[name].sum_risk += parseFloat(row.Supplier_Risk || 0);
-            supplierMap[name].sum_esg += parseFloat(row.Supplier_ESG_Score || 0);
+            supplierMap[name].sum_risk += riskNum;
+            supplierMap[name].sum_esg += esg;
+            if (isMaverick || row.Days_Late > 10) {
+                supplierMap[name].controversies++;
+            }
         });
         
-        // Calculate averages
-        mockSuppliers = Object.values(supplierMap).map(s => {
+        // Populate Overview KPIs
+        if (validRecords > 0) {
+            const avgSavings = (sumSavingsPct / validRecords).toFixed(1);
+            const avgEsg = (sumEsg / validRecords).toFixed(0);
+            const avgRisk = (sumRiskNum / validRecords).toFixed(0);
+            
+            const elSavings = document.getElementById('val-est-savings');
+            if (elSavings) {
+                const sign = avgSavings > 0 ? '+' : '';
+                const trendClass = avgSavings > 0 ? 'trend up' : 'trend down';
+                const trendIcon = avgSavings > 0 ? 'ph-trend-up' : 'ph-trend-down';
+                elSavings.innerHTML = `${avgSavings}% <span class="${trendClass}"><i class="ph ${trendIcon}"></i></span>`;
+                if (avgSavings <= 0) elSavings.style.color = 'var(--danger)';
+            }
+            
+            const elRisk = document.getElementById('val-avg-risk');
+            if (elRisk) {
+                let status = avgRisk < 30 ? '<span class="status-tag success">安全</span>' : (avgRisk < 70 ? '<span class="status-tag warning">普通</span>' : '<span class="status-tag danger">危險</span>');
+                elRisk.innerHTML = `${avgRisk} / 100 ${status}`;
+            }
+
+            const elHighRisk = document.getElementById('val-high-risk-count');
+            if (elHighRisk) elHighRisk.innerHTML = `${highRiskCount} 筆 <span class="status-tag danger">需關注</span>`;
+
+            const elEsg = document.getElementById('val-avg-esg');
+            if (elEsg) elEsg.innerHTML = `${avgEsg} / 100 <span class="status-tag success">健康</span>`;
+
+            const elMaverick = document.getElementById('val-maverick-count');
+            if (elMaverick) elMaverick.innerHTML = `${maverickCount} 筆 <span class="status-tag danger">需關注</span>`;
+        }
+        
+        const allSuppliers = Object.values(supplierMap).map(s => {
             return {
                 name: s.name,
+                category: s.category,
                 savings: +(s.sum_savings / s.count).toFixed(2),
                 otd: +(s.sum_otd / s.count).toFixed(1),
-                risk: +(s.sum_risk / s.count).toFixed(1),
+                riskNum: +(s.sum_risk / s.count).toFixed(1),
+                riskLevel: s.risk_level,
                 esg: +(s.sum_esg / s.count).toFixed(1),
-                preferred: s.preferred
+                preferred: s.preferred,
+                controversies: s.controversies
             };
         });
+
+        // 3. Populate Supplier Analysis Table
+        const supplierTableBody = document.getElementById('supplier-table-body');
+        if (supplierTableBody) {
+            supplierTableBody.innerHTML = '';
+            // Sort by risk descending
+            const tableSuppliers = [...allSuppliers].sort((a,b) => b.riskNum - a.riskNum).slice(0, 15);
+            tableSuppliers.forEach(sup => {
+                let riskBadge = '';
+                if (sup.riskLevel === 'Low') riskBadge = '<span class="badge success">Low</span>';
+                else if (sup.riskLevel === 'Medium') riskBadge = '<span class="badge warning">Medium</span>';
+                else riskBadge = '<span class="badge danger">High</span>';
+
+                let controText = sup.controversies > 0 ? `${sup.controversies} 筆紀錄` : '無';
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><i class="ph ph-buildings"></i> ${sup.name}</td>
+                    <td>${riskBadge}</td>
+                    <td>${sup.esg.toFixed(0)} / 100</td>
+                    <td>${sup.otd}%</td>
+                    <td class="${sup.controversies > 0 ? 'danger-text' : ''}">${controText}</td>
+                `;
+                supplierTableBody.appendChild(tr);
+            });
+        }
+
+        // 4. Update mockSuppliers for the Recommendation module (IT Software only)
+        mockSuppliers = allSuppliers.filter(s => s.category === 'IT Software');
         
         // Fallback if no IT Software data
         if (mockSuppliers.length === 0) {
             mockSuppliers = [
-                { name: "Demo IT Vendor (No Data)", savings: 5.0, otd: 90, risk: 20, esg: 70, preferred: true }
+                { name: "Demo IT Vendor (No Data)", savings: 5.0, otd: 90, riskNum: 20, esg: 70, preferred: true }
             ];
         }
 
-        // Default render
+        // Default render for recommendation
         if (typeof window.switchScenario === 'function') {
             window.switchScenario('cost');
         }
     } catch (e) {
-        console.error("Failed to load procurements API:", e);
+        console.error("Failed to load dashboard data:", e);
     }
 }
 
 // Automatically load suppliers and options on script load
 document.addEventListener('DOMContentLoaded', () => {
     loadFormOptionsFromAPI();
-    loadSuppliersFromAPI();
+    loadDashboardData();
 });
 
 // Fetch Form Options from Backend
