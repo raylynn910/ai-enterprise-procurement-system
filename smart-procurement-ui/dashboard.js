@@ -195,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 // Read the 5 dimensions calculated by the backend ML API
-                const complianceScore = result.compliance_score || 0;
+                const reputationScore = result.reputation_score || 0;
                 const financialScore = result.financial_score || 0;
                 const deliveryScore = result.delivery_score || 0;
                 const esgDimScore = result.esg_score || 0;
@@ -205,7 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     series: [{
                         name: '供應商能力',
                         data: [
-                            Math.round(complianceScore), 
+                            Math.round(reputationScore), 
                             Math.round(financialScore), 
                             Math.round(deliveryScore), 
                             Math.round(esgDimScore), 
@@ -380,9 +380,98 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Reports Button Logic
-    document.getElementById('btn-weekly-report')?.addEventListener('click', () => {
-        alert('報表生成中... (此處可串接後端 API 下載 PDF)');
+    let reportPieChartInstance = null;
+    let reportBarChartInstance = null;
+
+    document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-weekly-report');
+        const loadingStatus = document.getElementById('report-loading-status');
+        const dashboard = document.getElementById('report-dashboard');
+        const placeholder = document.getElementById('report-placeholder');
+        
+        btn.disabled = true;
+        loadingStatus.style.display = 'inline-block';
+        
+        try {
+            const res = await fetch('http://localhost:8000/api/reports/weekly');
+            if (!res.ok) throw new Error('API fetching failed');
+            const result = await res.json();
+            
+            // Render Markdown text
+            document.getElementById('val-report-content').innerHTML = marked.parse(result.markdown);
+            
+            // Show dashboard, hide placeholder
+            placeholder.style.display = 'none';
+            dashboard.style.display = 'grid';
+            
+            // Chart 1: Pie Chart (Risk Distribution)
+            const pieCtx = document.getElementById('report-pie-chart');
+            if (reportPieChartInstance) reportPieChartInstance.destroy();
+            reportPieChartInstance = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: result.charts.pie.labels,
+                    datasets: [{
+                        data: result.charts.pie.data,
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+
+            // Chart 2: Bar Chart (Cost Avoidance Trend)
+            const barCtx = document.getElementById('report-bar-chart');
+            if (reportBarChartInstance) reportBarChartInstance.destroy();
+            reportBarChartInstance = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: result.charts.bar.labels,
+                    datasets: [{
+                        label: 'Cost Avoidance (USD)',
+                        data: result.charts.bar.data,
+                        backgroundColor: 'rgba(56, 189, 248, 0.6)',
+                        borderColor: '#38bdf8',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        x: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+        } catch (e) {
+            console.error(e);
+            alert('報表生成失敗，請確認後端已連線。');
+        } finally {
+            btn.disabled = false;
+            loadingStatus.style.display = 'none';
+        }
     });
+
     document.getElementById('btn-monthly-report')?.addEventListener('click', () => {
         alert('報表生成中... (此處可串接後端 API 下載 Excel/PDF)');
     });
