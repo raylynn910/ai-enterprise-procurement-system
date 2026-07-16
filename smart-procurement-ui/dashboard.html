@@ -167,13 +167,28 @@
             <!-- VIEW: Supplier Recommendation Model -->
             <div id="view-recommendation" class="view-section">
                 <div class="dashboard-header">
-                    <h1>供應商推薦模型 (IT Software Supplier Recommendation)</h1>
+                    <h1>供應商推薦模型 (Supplier Recommendation)</h1>
                     <p>根據歷史節省率、準時交付率、供應商風險、ESG 分數與 Preferred 狀態進行綜合推薦。</p>
                 </div>
 
                 <div class="card glass-panel mb-4">
-                    <div class="card-header">
-                        <h3><i class="ph ph-sliders"></i> 選擇採購情境</h3>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                        <h3><i class="ph ph-sliders"></i> 選擇推薦條件</h3>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <label for="recommendation-category" style="font-weight: bold;">採購品項：</label>
+                            <select id="recommendation-category" class="form-control" style="width: 200px;" onchange="switchScenario(window.currentScenario || 'cost')">
+                                <option value="IT Software" selected>IT Software</option>
+                                <option value="Raw Materials">Raw Materials</option>
+                                <option value="Maintenance">Maintenance</option>
+                                <option value="HR & Training">HR & Training</option>
+                                <option value="Logistics">Logistics</option>
+                                <option value="Facilities">Facilities</option>
+                                <option value="Marketing">Marketing</option>
+                                <option value="Office Supplies">Office Supplies</option>
+                                <option value="Professional Svcs">Professional Svcs</option>
+                                <option value="IT Hardware">IT Hardware</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="scenario-toggles" style="display: flex; gap: 1rem; margin-top: 1rem; padding: 0 1.5rem 1.5rem;">
                         <button class="btn btn-primary" id="btn-scenario-cost" onclick="switchScenario('cost')"><i class="ph ph-piggy-bank"></i> 降本優先 (Cost-driven)</button>

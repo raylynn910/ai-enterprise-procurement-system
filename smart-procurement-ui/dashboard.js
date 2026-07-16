@@ -589,7 +589,11 @@ async function loadFormOptionsFromAPI() {
     }
 }
 
-window.switchScenario = function(scenario) {
+window.currentScenario = 'cost';
+
+window.switchScenario = async function(scenario) {
+    window.currentScenario = scenario;
+    
     // Update button active states
     document.querySelectorAll('.scenario-toggles .btn').forEach(btn => {
         btn.classList.remove('btn-primary');
@@ -602,61 +606,51 @@ window.switchScenario = function(scenario) {
         targetBtn.classList.add('btn-primary');
     }
 
-    renderSuppliers(scenario);
+    await fetchAndRenderSuppliers();
 };
 
-function renderSuppliers(scenario) {
+async function fetchAndRenderSuppliers() {
     const list = document.getElementById('recommendation-list');
     if (!list) return;
+    
+    const categorySelect = document.getElementById('recommendation-category');
+    const category = categorySelect ? categorySelect.value : 'IT Software';
+    const scenario = window.currentScenario || 'cost';
 
-    // Clone array to sort safely
-    let sortedSuppliers = [...mockSuppliers];
+    list.innerHTML = '<tr><td colspan="5" style="text-align: center;"><i class="ph ph-spinner-gap ph-spin"></i> 載入推薦清單中...</td></tr>';
 
-    sortedSuppliers.sort((a, b) => {
-        if (scenario === 'cost') {
-            return b.savings - a.savings; // Highest savings first
-        } else if (scenario === 'urgent') {
-            return b.otd - a.otd; // Highest OTD first
-        } else if (scenario === 'compliance') {
-            return b.esg - a.esg; // Highest ESG first
-        }
-        return 0;
-    });
+    try {
+        const response = await fetch(`http://localhost:8000/api/recommend/suppliers?category=${encodeURIComponent(category)}&scenario=${encodeURIComponent(scenario)}`);
+        if (!response.ok) throw new Error('API fetch failed');
+        const data = await response.json();
 
-    // Take top 3
-    sortedSuppliers = sortedSuppliers.slice(0, 3);
-
-    list.innerHTML = '';
-    sortedSuppliers.forEach((sup, index) => {
-        let score = 0;
-        let highlight = '';
-        if (scenario === 'cost') {
-            score = Math.round(sup.savings * 10); // arbitrary score mapping
-            highlight = `節省率優異 (${sup.savings}%)`;
-        } else if (scenario === 'urgent') {
-            score = sup.otd;
-            highlight = `準交率極高 (${sup.otd}%)`;
-        } else {
-            score = sup.esg;
-            highlight = `ESG 領先 (${sup.esg} 分)`;
+        list.innerHTML = '';
+        if (data.length === 0) {
+            list.innerHTML = '<tr><td colspan="5" style="text-align: center;">該品項目前沒有符合條件的供應商</td></tr>';
+            return;
         }
 
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><span class="badge ${index === 0 ? 'tier-1' : ''}">${index + 1}</span></td>
-            <td><strong>${sup.name}</strong> ${sup.preferred ? '<i class="ph ph-star" style="color: gold;" title="Preferred"></i>' : ''}</td>
-            <td class="success-text">${score} / 100</td>
-            <td><span class="alert-tag success" style="padding: 0.2rem 0.5rem;"><i class="ph ph-check-circle"></i> ${highlight}</span></td>
-            <td><button class="btn btn-sm btn-primary">選擇</button></td>
-        `;
-        list.appendChild(tr);
-    });
+        data.forEach((sup, index) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><span class="badge ${index === 0 ? 'tier-1' : ''}">${sup.rank}</span></td>
+                <td><strong>${sup.name}</strong> <small>(${sup.country})</small></td>
+                <td class="success-text" style="font-weight: bold;">${sup.score_text}</td>
+                <td><span class="alert-tag success" style="padding: 0.2rem 0.5rem;"><i class="ph ph-check-circle"></i> ${sup.reason}</span></td>
+                <td><button class="btn btn-sm btn-primary">選擇</button></td>
+            `;
+            list.appendChild(tr);
+        });
+    } catch (e) {
+        console.error("Failed to fetch recommendations:", e);
+        list.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">載入失敗，請確認後端伺服器是否運行中</td></tr>';
+    }
 }
 
 // Initial render for Recommendation Model
 document.addEventListener('DOMContentLoaded', () => {
     if (document.getElementById('view-recommendation')) {
-        renderSuppliers('cost'); // Default scenario
+        switchScenario('cost'); // Default scenario
     }
 });
 
