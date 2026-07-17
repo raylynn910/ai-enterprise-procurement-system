@@ -1086,3 +1086,56 @@ span.badge {
     align-items: center;
     gap: 0.5rem;
 }
+
+
+/* Custom Logo Styling for ITTIDE */
+.logo-wrapper {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(0, 242, 254, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    box-shadow: 0 0 15px rgba(0, 242, 254, 0.2), inset 0 0 10px rgba(255, 255, 255, 0.05);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.logo-wrapper::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(transparent, rgba(0, 242, 254, 0.6), transparent 30%);
+    animation: rotate-border 4s linear infinite;
+}
+
+@keyframes rotate-border {
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.logo-wrapper::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    background: #0f172a;
+    border-radius: 10px;
+    z-index: 1;
+}
+
+.ittide-logo {
+    width: 90%;
+    height: auto;
+    max-height: 90%;
+    object-fit: contain;
+    z-index: 2;
+    filter: drop-shadow(0 0 8px rgba(0, 242, 254, 0.4));
+    border-radius: 4px;
+}
