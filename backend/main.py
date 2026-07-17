@@ -465,7 +465,7 @@ def get_monthly_trends():
         data.append(r)
         
     # 按年份與月份排序
-    data = sorted(data, key=lambda x: (int(x["PO_Year"]), x["month_num"]))
+    data = sorted(data, key=lambda x: (int(x["PO_Year"]) if x.get("PO_Year") and str(x["PO_Year"]).isdigit() else 0, x.get("month_num", 99)))
     
     conn.close()
     
@@ -958,13 +958,15 @@ def add_supplier(request: SupplierAddRequest):
         
         conn.execute('''
             INSERT INTO procurement_data (
-                PO_Number, PO_Date, Supplier_ID, Supplier_Name, Supplier_Country,
+                PO_Number, PO_Date, PO_Year, PO_Month, Supplier_ID, Supplier_Name, Supplier_Country,
                 Supplier_Risk, Category, Supplier_ESG_Score, Days_Late, Savings_Pct,
                 Quantity, Item_Description
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             f"PO-{random.randint(100000, 999999)}",
             "2024-05-01",
+            "2024",
+            "May",
             supplier_id,
             request.name,
             request.country,

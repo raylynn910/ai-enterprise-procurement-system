@@ -1137,7 +1137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const data = await res.json();
                     
                     if (!data.found) {
-                        alert(data.message || '找不到符合條件的供應商');
+                        alert(data.message || 'No supplier found.');
                         return;
                     }
                     
@@ -1202,7 +1202,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                 } catch (e) {
                     console.error('Search failed:', e);
-                    alert('搜尋時發生錯誤，請稍後再試。');
+                    alert('Search error occurred. Please try again later.');
                 }
             }
         });
@@ -1210,34 +1210,49 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 
-// Add Supplier Modal Logic
+// Add Supplier Drawer Logic
 document.addEventListener('DOMContentLoaded', () => {
-    const modal = document.getElementById('add-supplier-modal');
+    const drawer = document.getElementById('add-supplier-drawer');
+    const overlay = document.getElementById('drawer-overlay');
     const btnOpen = document.getElementById('btn-open-add-supplier');
-    const btnClose = document.getElementById('btn-close-modal');
-    const btnCancel = document.getElementById('btn-cancel-add');
+    const btnClose = document.getElementById('btn-close-drawer');
+    const btnCancel = document.getElementById('btn-cancel-drawer');
     const form = document.getElementById('add-supplier-form');
     const btnSubmit = document.getElementById('btn-submit-add');
 
-    if (btnOpen) {
-        btnOpen.addEventListener('click', () => {
-            modal.style.display = 'flex';
-        });
-    }
-
-    const closeModal = () => {
-        modal.style.display = 'none';
-        form.reset();
+    const openDrawer = () => {
+        if (drawer && overlay) {
+            overlay.style.display = 'block';
+            // Trigger reflow for transition
+            void overlay.offsetWidth;
+            overlay.style.opacity = '1';
+            drawer.style.right = '0';
+        }
     };
 
-    if (btnClose) btnClose.addEventListener('click', closeModal);
-    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+    const closeDrawer = () => {
+        if (drawer && overlay) {
+            drawer.style.right = '-500px';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 300); // matches CSS transition duration
+            if (form) form.reset();
+        }
+    };
+
+    if (btnOpen) btnOpen.addEventListener('click', openDrawer);
+    if (btnClose) btnClose.addEventListener('click', closeDrawer);
+    if (btnCancel) btnCancel.addEventListener('click', closeDrawer);
+    if (overlay) overlay.addEventListener('click', closeDrawer);
 
     if (form) {
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            btnSubmit.innerHTML = 'Processing...';
-            btnSubmit.disabled = true;
+            if (btnSubmit) {
+                btnSubmit.innerHTML = 'Processing...';
+                btnSubmit.disabled = true;
+            }
 
             const payload = {
                 name: document.getElementById('as-name').value,
@@ -1254,10 +1269,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     body: JSON.stringify(payload)
                 });
                 const data = await res.json();
+                
                 if (data.success) {
                     alert('Vendor onboarded successfully! AI initial evaluation complete. You can now search for this vendor.');
-                    closeModal();
-                    // Optionally refresh the current view if needed
+                    closeDrawer();
                 } else {
                     alert('Error: ' + data.message);
                 }
@@ -1265,8 +1280,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error(err);
                 alert('API Request Failed');
             } finally {
-                btnSubmit.innerHTML = 'Submit & AI Evaluate';
-                btnSubmit.disabled = false;
+                if (btnSubmit) {
+                    btnSubmit.innerHTML = '<i class="ph ph-sparkle"></i> 送出並由 AI 評估';
+                    btnSubmit.disabled = false;
+                }
             }
         });
     }
