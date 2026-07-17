@@ -1104,7 +1104,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!query) return;
                 
                 try {
-                    const res = await fetch(`/api/supplier/search?q=${encodeURIComponent(query)}`);
+                    const res = await fetch(`http://localhost:8000/api/supplier/search?q=${encodeURIComponent(query)}`);
                     const data = await res.json();
                     
                     if (!data.found) {

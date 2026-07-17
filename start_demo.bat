@@ -1,4 +1,5 @@
 @echo off
+set PYTHONUTF8=1
 echo ========================================================
 echo      Starting SmartProcure Dashboard (Demo Mode)
 echo ========================================================
