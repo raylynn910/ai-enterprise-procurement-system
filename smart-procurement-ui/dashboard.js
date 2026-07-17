@@ -776,24 +776,53 @@ async function fetchAndRenderSuppliers() {
         const otdData = data.map(d => 100 - d.raw_metrics.days_late * 5); // Rough normalization for OTD score (100 - late*5)
         const esgData = data.map(d => d.raw_metrics.esg_score);
         
-        // Render or Update Radar Chart
+        // Create Intuitive "RPG-Style" Radar Chart
+        // We swap axes to be Dimensions (Savings, OTD, ESG), and series to be Suppliers.
+        const radarSeries = data.map((d, index) => {
+            // Normalize all scores to a 0-100 scale for balanced radar display
+            const savingsScore = Math.min(100, Math.max(0, d.raw_metrics.savings_pct * 8)); // 12.5% savings = 100 score
+            const otdScore = Math.max(0, 100 - d.raw_metrics.days_late * 5);
+            const esgScore = d.raw_metrics.esg_score;
+            return {
+                name: d.name,
+                data: [savingsScore.toFixed(1), otdScore.toFixed(1), esgScore.toFixed(1)]
+            };
+        });
+
+        const customColors = ['#00f0ff', '#b026ff', '#ffb300']; // Cyberpunk primary, purple, warning
+
         const radarOptions = {
-            series: [{ name: 'Savings Potential', data: savingsData },
-                     { name: 'On-Time Score', data: otdData },
-                     { name: 'ESG Score', data: esgData }],
-            chart: { type: 'radar', height: 350, toolbar: { show: false }, background: 'transparent' },
-            labels: supplierNames,
-            stroke: { width: 2 },
-            fill: { opacity: 0.2 },
-            markers: { size: 4 },
-            xaxis: {
-                labels: {
-                    style: { colors: ['#a0aec0', '#a0aec0', '#a0aec0'], fontSize: '11px', fontFamily: 'Inter' }
+            series: radarSeries,
+            chart: { 
+                type: 'radar', 
+                height: 350, 
+                toolbar: { show: false }, 
+                background: 'transparent',
+                dropShadow: {
+                    enabled: true,
+                    blur: 8,
+                    left: 0,
+                    top: 0,
+                    opacity: 0.5
                 }
             },
-            yaxis: { show: false },
-            theme: { mode: 'dark', palette: 'palette1' },
-            legend: { position: 'bottom', labels: { colors: '#fff' } }
+            colors: customColors,
+            labels: ['Cost Savings Score', 'On-Time Delivery', 'ESG Sustainability'],
+            stroke: { width: 3, curve: 'smooth' },
+            fill: { opacity: 0.25 },
+            markers: { size: 5, hover: { size: 8 } },
+            xaxis: {
+                labels: {
+                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '12px', fontFamily: 'Inter', fontWeight: 600 }
+                }
+            },
+            yaxis: { show: false, min: 0, max: 100 },
+            theme: { mode: 'dark' },
+            legend: { 
+                position: 'bottom', 
+                labels: { colors: '#fff' },
+                markers: { radius: 12 }
+            }
         };
 
         if (recommendationRadarChart) {
