@@ -161,12 +161,9 @@ AGG_FEATURES_B_EXTRA = ["hist_maverick_rate", "hist_single_source_rate"]
 CONTEXT_NUM = ["Quantity", "Lead Time Days", "Discount Pct"]
 CONTEXT_CAT = ["Category", "PO Type", "Payment Terms"]
 
-# 每家供應商的第一筆沒有歷史 → 聚合為 NaN。樹模型原生吃 NaN，
-# 但為求三個框架行為一致，統一以「中性值」填補。
-neutral_fill = {c: df[c].median() for c in AGG_FEATURES_A + AGG_FEATURES_B_EXTRA}
-df[AGG_FEATURES_A + AGG_FEATURES_B_EXTRA] = df[
-    AGG_FEATURES_A + AGG_FEATURES_B_EXTRA
-].fillna(neutral_fill)
+# 每家供應商的第一筆沒有歷史 → 聚合為 NaN。
+# 注意: 填補統計量只能來自「訓練集」(否則測試資訊洩入訓練),
+# 因此填補延後到 STEP 4 切分索引確定之後執行。
 
 print(f">> 新增聚合特徵 {len(AGG_FEATURES_A) + len(AGG_FEATURES_B_EXTRA)} 個 "
       f"(Set A: {len(AGG_FEATURES_A)}, Set B 額外: {len(AGG_FEATURES_B_EXTRA)})")
@@ -218,6 +215,13 @@ idx_val, idx_test = train_test_split(
     idx_tmp, test_size=0.50, random_state=RANDOM_STATE, stratify=y[idx_tmp]
 )
 print(f">> train={len(idx_train)}  val={len(idx_val)}  test={len(idx_test)}")
+
+# 缺失值填補 — 統計量只取自訓練列, 再套用到全部 (修正: 原版用全資料
+# 中位數, 會把 val/test 的資訊帶進訓練)
+_fill_cols = AGG_FEATURES_A + AGG_FEATURES_B_EXTRA
+neutral_fill = {c: float(X_ohe.iloc[idx_train][c].median()) for c in _fill_cols}
+X_ohe[_fill_cols] = X_ohe[_fill_cols].fillna(neutral_fill)
+df[_fill_cols] = df[_fill_cols].fillna(neutral_fill)  # CatBoost 用的 df 同步
 
 y_tr, y_va, y_te = y[idx_train], y[idx_val], y[idx_test]
 # 不平衡處理: 訓練集 balanced sample weights (SMOTE 在此類聚合特徵上不適用)

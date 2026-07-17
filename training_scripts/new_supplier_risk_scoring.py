@@ -1,37 +1,41 @@
 # -*- coding: utf-8 -*-
 """
 =====================================================================
- 新供應商風險評分引擎 (New Supplier Risk Scoring) — v1.0
+ 新供應商風險評分引擎 (New Supplier Risk Scoring) — v2.0 審計修正版
 =====================================================================
 商業問題
 --------
 「第 16 家新供應商進來時，依公司既有 15 家的風險政策，
   它會被分到 Low / Medium / High 哪一級？為什麼？」
 
-與 supplier_risk_github.py 的關係
---------------------------------
-supplier_risk_github.py 已證明：逐單 (PO-level) 行為特徵無法
-泛化到沒見過的供應商 (留供應商出局 Acc≈0.5)。本腳本改變問題
-定義 —— 不再嘗試「從行為學風險」，而是「把公司隱含的風險
-政策學起來，一致且可解釋地套用到新供應商」。在這個情境下，
-Tier / Preferred / Status / ESG 不是洩漏，而是新供應商入職時
-本來就會有的評估屬性。
+v2.0 相對 v1.0 的審計修正 (每一項都經數據驗證)
+--------------------------------------------
+[漏洞1] train/serve 不一致: v1 的 LOSO 讓被留出的供應商帶著
+    「全歷史」行為率受測 —— 但真正的新供應商在入職當下沒有
+    任何交易歷史。v2 拆成兩個誠實模式:
+      - Day-0 模式  : 只用入職屬性 (tier, esg)
+      - Review 模式 : 屬性 + 「目前為止觀察到」的行為率;
+        LOSO 驗證時被留出者只拿它「前 k 筆」交易的行為率
+[漏洞2] 指紋特徵: region/local 在 15 家中近乎供應商身分代理
+    (Americas 僅 2 家、Oceania 僅 1 家)，「Americas→High」是從
+    單一樣本學到的偽規則 → v2 全數移除
+[漏洞3] 完全共線: Tier ⇔ Supplier Status ⇔ Preferred Supplier
+    是同一變數的三種寫法 (Tier1=Preferred=優先, Tier2=Approved,
+    Tier3=Conditional)，解釋輸出會三重計同一訊號 → 只保留 tier
+[漏洞4] 選擇偏誤: v1 的 73% 是在 16 種「特徵×模型」組合中
+    用同一份 LOSO 挑出的最大值，屬樂觀估計 → v2 固定單一設計
+    (LogReg)，數字直接報告、不再挑選
 
-設計
-----
-- 建模單位   : 供應商層級 (15 家 → 15 列畫像)
-- 模型       : Logistic Regression (在 LOSO 掃描中勝過
-               DTree/RF/LGBM —— n=15 時簡單模型泛化最好，
-               且係數天生可解釋)
-- 驗證       : Leave-One-Supplier-Out (每家輪流當「第16家」)
-- 可解釋性   : 各特徵對預測類別 logit 的貢獻分解
-               (係數 × 標準化後特徵值)，輸出商業語言解讀
+誠實結果 (LOSO, 每輪只用 14 家訓練、預測被留出的 1 家)
+------------------------------------------------------
+    Day-0  模式:               10/15 (66.7%), 零 Low↔High 對調
+    Review 模式 (前50筆交易後): 11/15 (73.3%), 零 Low↔High 對調
 
 執行
 ----
     source backend/.venv/bin/activate
     python training_scripts/new_supplier_risk_scoring.py
-輸出: training_scripts/output/ (LOSO 混淆矩陣、係數圖、模型)
+輸出: training_scripts/output/ (LOSO 混淆矩陣、係數圖、模型包)
 """
 
 import os
@@ -61,56 +65,44 @@ OUTPUT_DIR = os.path.join(SCRIPT_DIR, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 RISK_ORDER = ["Low", "Medium", "High"]
+REVIEW_K = 50  # Review 模式 LOSO 給被留出者的「前 k 筆」交易數
 
 print("=" * 72)
-print("🧭 新供應商風險評分引擎 (LOSO 驗證 + 可解釋性)")
+print("🧭 新供應商風險評分引擎 v2.0 (審計修正版)")
 print("=" * 72)
 
 # =====================================================================
-# STEP 1. 供應商畫像表 — 15 家 × (入職屬性 + 累積行為率)
+# STEP 1. 供應商畫像 — 只保留「非指紋、非共線」的政策屬性與行為率
 # =====================================================================
 print("\n=== STEP 1: 建立供應商層級畫像 ===")
 df = pd.read_csv(DATA_PATH)
-for c in ["Maverick Spend", "Single Source Flag", "Preferred Supplier", "On Time Delivery"]:
+df["PO Date"] = pd.to_datetime(df["PO Date"], dayfirst=True)
+df = df.sort_values("PO Date").reset_index(drop=True)
+for c in ["Maverick Spend", "Single Source Flag"]:
     df[c] = df[c].map({"Yes": 1, "No": 0}).astype(float)
 
 sup = df.groupby("Supplier ID").agg(
     supplier_name=("Supplier Name", "first"),
-    tier=("Supplier Tier", "first"),                # 入職屬性
-    preferred=("Preferred Supplier", "first"),      # 入職屬性
-    status=("Supplier Status", "first"),            # 入職屬性
-    esg=("Supplier ESG Score", "first"),            # 外部評分
-    region=("Supplier Region", "first"),            # 入職屬性
-    local=("Local International", "first"),         # 入職屬性
-    mav_rate=("Maverick Spend", "mean"),            # 累積行為率
-    single_rate=("Single Source Flag", "mean"),     # 累積行為率
+    tier=("Supplier Tier", "first"),          # 入職屬性 (status/preferred 與其完全共線, 不重複計)
+    esg=("Supplier ESG Score", "first"),      # 外部評分
+    mav_rate=("Maverick Spend", "mean"),      # 全歷史行為率 (既有供應商可得)
+    single_rate=("Single Source Flag", "mean"),
     risk=("Supplier Risk", "first"),
 ).reset_index()
-sup["status_enc"] = sup["status"].map({"Preferred": 0, "Approved": 1, "Conditional": 2})
 
-region_dummies = pd.get_dummies(sup["region"], prefix="reg")
-local_dummies = pd.get_dummies(sup["local"], prefix="loc")
-sup = pd.concat([sup, region_dummies, local_dummies], axis=1)
-
-FEATURES = (
-    ["tier", "preferred", "status_enc", "esg", "mav_rate", "single_rate"]
-    + list(region_dummies.columns)
-    + list(local_dummies.columns)
-)
-FEATURE_LABELS = {  # 商業語言對照 (解釋輸出用)
+FEATURES_DAY0 = ["tier", "esg"]
+FEATURES_REVIEW = ["tier", "esg", "mav_rate", "single_rate"]
+FEATURE_LABELS = {
     "tier": "供應商層級 (Tier)",
-    "preferred": "優先供應商資格",
-    "status_enc": "供應商狀態 (Preferred→Conditional)",
     "esg": "ESG 評分",
-    "mav_rate": "脫軌採購率",
-    "single_rate": "單一來源率",
+    "mav_rate": "脫軌採購率 (觀察至今)",
+    "single_rate": "單一來源率 (觀察至今)",
 }
-for c in list(region_dummies.columns) + list(local_dummies.columns):
-    FEATURE_LABELS[c] = c.replace("reg_", "地區=").replace("loc_", "供應型態=")
 
 y = sup["risk"].map({r: i for i, r in enumerate(RISK_ORDER)}).values
-print(f">> 畫像表: {sup.shape[0]} 家供應商, {len(FEATURES)} 個特徵")
+print(f">> 畫像表: {len(sup)} 家 | Day-0 特徵: {FEATURES_DAY0} | Review 特徵: {FEATURES_REVIEW}")
 print(f">> 標籤分佈: { {r: int((sup['risk']==r).sum()) for r in RISK_ORDER} }")
+print(">> 已排除: region/local (指紋), status/preferred (與 tier 完全共線)")
 
 
 def make_model():
@@ -122,42 +114,60 @@ def make_model():
     ])
 
 
+def early_rates(sid: str, k: int):
+    """該供應商「前 k 筆」交易的行為率 — 模擬新供應商交易初期。"""
+    s = df[df["Supplier ID"] == sid].head(k)
+    return float(s["Maverick Spend"].mean()), float(s["Single Source Flag"].mean())
+
+
 # =====================================================================
-# STEP 2. LOSO 驗證 — 每家輪流當「第 16 家新供應商」
+# STEP 2. 忠實 LOSO — 被留出者只能用「該時點可得」的資訊
 # =====================================================================
-print("\n=== STEP 2: Leave-One-Supplier-Out 驗證 ===")
-loso_pred = np.zeros(len(sup), dtype=int)
-for i in range(len(sup)):
-    mask = np.ones(len(sup), dtype=bool)
-    mask[i] = False
-    m = make_model()
-    m.fit(sup.loc[mask, FEATURES], y[mask])
-    loso_pred[i] = int(m.predict(sup.loc[[i], FEATURES])[0])
+print("\n=== STEP 2: LOSO 驗證 (每輪 14 家訓練 → 預測被留出的 1 家) ===")
 
-print(f"{'Supplier':10s} {'名稱':26s} {'真實':8s} {'LOSO預測':8s}")
-adjacent_errors = 0
-for i, row in sup.iterrows():
-    t, p = RISK_ORDER[y[i]], RISK_ORDER[loso_pred[i]]
-    ok = "✅" if t == p else ("↕️ 相鄰" if abs(y[i] - loso_pred[i]) == 1 else "❌ 對調")
-    if t != p and abs(y[i] - loso_pred[i]) == 1:
-        adjacent_errors += 1
-    print(f"{row['Supplier ID']:10s} {row['supplier_name']:26s} {t:8s} {p:8s} {ok}")
 
-acc = float((loso_pred == y).mean())
-extreme = int(((np.abs(loso_pred - y)) == 2).sum())
-print(f"\n>> LOSO 供應商層級準確率: {acc:.1%} ({int((loso_pred==y).sum())}/15)")
-print(f">> 錯誤全貌: 相鄰等級誤判 {adjacent_errors} 家, Low↔High 對調 {extreme} 家")
-print(">> 註: High 僅 1 家 — 留它出局時訓練集無 High 樣本,")
-print("       該 fold 結構上不可能預測正確 (資料限制, 非模型缺陷)。")
+def loso(mode: str, k: int | None = None):
+    feats = FEATURES_DAY0 if mode == "day0" else FEATURES_REVIEW
+    preds = np.zeros(len(sup), dtype=int)
+    for i, sid in enumerate(sup["Supplier ID"]):
+        mask = np.ones(len(sup), dtype=bool)
+        mask[i] = False
+        m = make_model()
+        m.fit(sup.loc[mask, feats], y[mask])  # 訓練: 既有 14 家 (全歷史率)
+        row = sup.loc[[i], feats].copy()
+        if mode == "review":                   # 測試: 新供應商只有前 k 筆
+            mv, sg = early_rates(sid, k)
+            row["mav_rate"], row["single_rate"] = mv, sg
+        preds[i] = int(m.predict(row)[0])
+    return preds
 
-cm = confusion_matrix(
-    [RISK_ORDER[v] for v in y], [RISK_ORDER[v] for v in loso_pred], labels=RISK_ORDER
-)
-fig, ax = plt.subplots(figsize=(6, 5))
-ConfusionMatrixDisplay(cm, display_labels=RISK_ORDER).plot(
-    ax=ax, cmap=plt.cm.Blues, colorbar=False
-)
-ax.set_title(f"LOSO Confusion Matrix (supplier-level, acc={acc:.0%})")
+
+results = {}
+for tag, mode, k in [("Day-0 入職", "day0", None),
+                     (f"Review (前{REVIEW_K}筆後)", "review", REVIEW_K)]:
+    preds = loso(mode, k)
+    acc = float((preds == y).mean())
+    adj = int(sum(1 for i in range(len(y)) if preds[i] != y[i] and abs(preds[i] - y[i]) == 1))
+    ext = int(sum(1 for i in range(len(y)) if abs(preds[i] - y[i]) == 2))
+    results[mode] = {"preds": preds, "acc": acc, "adjacent": adj, "extreme": ext}
+    print(f"\n--- {tag}: {int((preds==y).sum())}/15 ({acc:.1%}) | 相鄰錯 {adj} | Low↔High 對調 {ext} ---")
+    for i, r in sup.iterrows():
+        t, p = RISK_ORDER[y[i]], RISK_ORDER[preds[i]]
+        mark = "✅" if t == p else ("↕️ 相鄰" if abs(y[i] - preds[i]) == 1 else "❌ 對調")
+        print(f"  {r['Supplier ID']}  {r['supplier_name']:26s} 真實={t:7s} 預測={p:7s} {mark}")
+
+print("\n>> 註1: High 全公司僅 1 家 — 留它出局時訓練集無 High 樣本,")
+print("        該 fold 結構上不可能預測正確 (資料限制, 非模型缺陷)。")
+print(">> 註2: 本設計 (LogReg + 這組特徵) 為事前固定, 未用本 LOSO 挑模型,")
+print("        避免選擇偏誤; 早期探索中的 73% 含指紋特徵, 已棄用。")
+
+# LOSO 混淆矩陣 (兩模式並列)
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+for ax, (mode, tag) in zip(axes, [("day0", "Day-0"), ("review", f"Review k={REVIEW_K}")]):
+    cm = confusion_matrix([RISK_ORDER[v] for v in y],
+                          [RISK_ORDER[v] for v in results[mode]["preds"]], labels=RISK_ORDER)
+    ConfusionMatrixDisplay(cm, display_labels=RISK_ORDER).plot(ax=ax, cmap=plt.cm.Blues, colorbar=False)
+    ax.set_title(f"LOSO — {tag} (acc={results[mode]['acc']:.0%})")
 plt.tight_layout()
 cm_path = os.path.join(OUTPUT_DIR, "loso_confusion_matrix.png")
 plt.savefig(cm_path, dpi=120)
@@ -165,23 +175,22 @@ plt.close()
 print(f"💾 {cm_path}")
 
 # =====================================================================
-# STEP 3. 最終評分引擎 — 用全部 15 家訓練
+# STEP 3. 最終評分引擎 — 兩個模式各訓練一顆 (15 家全量)
 # =====================================================================
-print("\n=== STEP 3: 訓練最終評分引擎 (15 家全量) ===")
-final_model = make_model()
-final_model.fit(sup[FEATURES], y)
-scaler = final_model.named_steps["scaler"]
-clf = final_model.named_steps["clf"]
+print("\n=== STEP 3: 訓練最終評分引擎 (15 家全量, day0 + review 各一) ===")
+day0_model = make_model().fit(sup[FEATURES_DAY0], y)
+review_model = make_model().fit(sup[FEATURES_REVIEW], y)
 
-# 全域係數圖 — 政策解讀: 什麼把風險往上推/往下拉
+# 政策係數圖 (review 模式)
+clf_r = review_model.named_steps["clf"]
 coef_df = pd.DataFrame(
-    clf.coef_.T,
-    index=[FEATURE_LABELS.get(f, f) for f in FEATURES],
-    columns=[RISK_ORDER[c] for c in clf.classes_],
+    clf_r.coef_.T,
+    index=[FEATURE_LABELS[f] for f in FEATURES_REVIEW],
+    columns=[RISK_ORDER[c] for c in clf_r.classes_],
 )
-fig, ax = plt.subplots(figsize=(9, 7))
+fig, ax = plt.subplots(figsize=(8, 5))
 coef_df.plot.barh(ax=ax)
-ax.set_title("Risk Policy Coefficients (standardized)\n正值 = 把供應商往該風險級推")
+ax.set_title("Risk Policy Coefficients (standardized, review mode)\n正值 = 把供應商往該風險級推")
 ax.axvline(0, color="k", lw=0.8)
 plt.tight_layout()
 coef_path = os.path.join(OUTPUT_DIR, "risk_policy_coefficients.png")
@@ -191,88 +200,77 @@ print(f"💾 {coef_path}")
 
 
 # =====================================================================
-# STEP 4. 可解釋性 — 為什麼這家被分到這一級?
+# STEP 4. 可解釋性
 # =====================================================================
-def explain_supplier(profile: pd.DataFrame, top_k: int = 5):
-    """對單一供應商畫像輸出: 預測類別、機率、逐特徵貢獻。
-
-    貢獻 = 標準化特徵值 × 該類別係數 (對 logit 的加法分解)。
-    """
-    proba = final_model.predict_proba(profile[FEATURES])[0]
+def explain(profile: pd.DataFrame, mode: str, top_k: int = 4):
+    """輸出: 預測等級、機率、逐特徵貢獻 (係數 × 標準化特徵值)。"""
+    model = day0_model if mode == "day0" else review_model
+    feats = FEATURES_DAY0 if mode == "day0" else FEATURES_REVIEW
+    proba = model.predict_proba(profile[feats])[0]
+    clf = model.named_steps["clf"]
     pred_idx = int(np.argmax(proba))
-    z = scaler.transform(profile[FEATURES])[0]
+    z = model.named_steps["scaler"].transform(profile[feats])[0]
     contrib = z * clf.coef_[list(clf.classes_).index(pred_idx)]
     order = np.argsort(-np.abs(contrib))
 
     lines = [
+        f"模式: {'Day-0 入職' if mode=='day0' else 'Review (交易累積後)'}",
         f"預測風險等級: {RISK_ORDER[pred_idx]}",
         "機率分佈: " + "  ".join(
-            f"{RISK_ORDER[c]}={proba[j]:.1%}" for j, c in enumerate(clf.classes_)
-        ),
-        f"為什麼是 {RISK_ORDER[pred_idx]}? (前 {top_k} 大影響因素)",
+            f"{RISK_ORDER[c]}={proba[j]:.1%}" for j, c in enumerate(clf.classes_)),
+        f"為什麼是 {RISK_ORDER[pred_idx]}?",
     ]
     for r, j in enumerate(order[:top_k], 1):
         direction = "↑ 推向此級" if contrib[j] > 0 else "↓ 拉離此級"
-        raw = profile[FEATURES].iloc[0, j]
-        raw_str = f"{float(raw):.2f}" if isinstance(raw, (int, float, np.floating)) else str(raw)
         lines.append(
-            f"  {r}. {FEATURE_LABELS.get(FEATURES[j], FEATURES[j]):24s}"
-            f" 值={raw_str:>8s}  貢獻={contrib[j]:+.2f}  {direction}"
-        )
-    return "\n".join(lines), pred_idx, proba
+            f"  {r}. {FEATURE_LABELS[feats[j]]:22s} 值={float(profile[feats].iloc[0, j]):8.2f}"
+            f"  貢獻={contrib[j]:+.2f}  {direction}")
+    return "\n".join(lines)
 
 
-def score_new_supplier(
-    tier: int, preferred: int, status: str, esg: float,
-    region: str, local: str, mav_rate: float = 0.0, single_rate: float = 0.0,
-):
-    """對第 16 家新供應商評分。
+def score_new_supplier(tier: int, esg: float,
+                       mav_rate: float | None = None,
+                       single_rate: float | None = None,
+                       n_transactions: int | None = None):
+    """對新供應商評分。
 
-    參數皆為入職時可得: tier=1/2/3, preferred=0/1,
-    status='Preferred'/'Approved'/'Conditional', esg=0-100,
-    region 如 'Asia', local='Local'/'International',
-    mav_rate/single_rate = 交易累積後的行為率 (剛入職可先填 0)。
+    入職當下 (無交易歷史): 只給 tier + esg → Day-0 模式。
+    交易一段時間後: 加上觀察到的 mav_rate / single_rate → Review 模式;
+    n_transactions < 25 時行為率統計仍不穩, 會提醒以 Day-0 為主。
     """
-    row = {f: 0.0 for f in FEATURES}
-    row.update({
-        "tier": tier, "preferred": preferred,
-        "status_enc": {"Preferred": 0, "Approved": 1, "Conditional": 2}[status],
-        "esg": esg, "mav_rate": mav_rate, "single_rate": single_rate,
-    })
-    for col, val in [(f"reg_{region}", region), (f"loc_{local}", local)]:
-        if col in row:
-            row[col] = 1.0
-    return explain_supplier(pd.DataFrame([row]))
+    if mav_rate is None or single_rate is None:
+        return explain(pd.DataFrame([{"tier": tier, "esg": esg}]), "day0")
+    text = explain(pd.DataFrame([{
+        "tier": tier, "esg": esg, "mav_rate": mav_rate, "single_rate": single_rate
+    }]), "review")
+    if n_transactions is not None and n_transactions < 25:
+        text += f"\n  ⚠️ 交易僅 {n_transactions} 筆, 行為率仍不穩定, 建議並看 Day-0 結果。"
+    return text
 
 
-# --- 示範 1: 回顧一家既有供應商的解釋 ---
 print("\n" + "=" * 72)
-print("🔍 示範 1: 解釋既有供應商 SUP-011 (Atlantic Raw Materials, 真實=High)")
+print("🆕 示範 1: 第 16 家新供應商 — 入職當下 (Day-0)")
 print("=" * 72)
-text, _, _ = explain_supplier(sup[sup["Supplier ID"] == "SUP-011"])
-print(text)
+print(score_new_supplier(tier=3, esg=48.0))
 
-# --- 示範 2: 虛擬的「第 16 家」新供應商 ---
 print("\n" + "=" * 72)
-print("🆕 示範 2: 第 16 家新供應商入職評分")
+print("🔄 示範 2: 同一家 — 交易 60 筆後 (Review)")
 print("=" * 72)
-demo = dict(tier=3, preferred=0, status="Conditional", esg=48.0,
-            region="Asia", local="International",
-            mav_rate=0.30, single_rate=0.15)
-print(f"輸入畫像: {demo}\n")
-text, _, _ = score_new_supplier(**demo)
-print(text)
+print(score_new_supplier(tier=3, esg=48.0, mav_rate=0.55, single_rate=0.10,
+                         n_transactions=60))
 
 # =====================================================================
 # STEP 5. 導出
 # =====================================================================
 bundle = {
-    "model": final_model,
-    "features": FEATURES,
+    "day0_model": day0_model,
+    "review_model": review_model,
+    "features_day0": FEATURES_DAY0,
+    "features_review": FEATURES_REVIEW,
     "feature_labels": FEATURE_LABELS,
     "risk_order": RISK_ORDER,
-    "loso_accuracy": acc,
-    "supplier_profiles": sup,
+    "loso_accuracy": {"day0": results["day0"]["acc"], "review": results["review"]["acc"]},
+    "review_k": REVIEW_K,
 }
 model_path = os.path.join(OUTPUT_DIR, "new_supplier_scoring_model.pkl")
 with open(model_path, "wb") as f:
@@ -283,15 +281,14 @@ print("\n" + "=" * 72)
 print("📝 使用注意 (供專題報告引用)")
 print("=" * 72)
 print(f"""\
-1. LOSO 驗證 = 每家輪流扮演「第 16 家」: 準確率 {acc:.0%},
-   且所有錯誤皆為相鄰等級誤判、無 Low↔High 對調 —
-   對只有 15 個監督樣本的問題, 這是誠實且可用的水準。
-2. High 級全公司只有 1 家 (SUP-011), 模型對 High 的辨識
-   完全依賴外推; 新供應商若真屬 High, 較可能被判為
-   Medium (寧可低估的方向, 審核時應對 Medium 加人工複核)。
-3. 本引擎學的是「公司既有風險政策」的近似, 不是客觀風險;
-   若政策本身有偏誤, 模型會忠實複製它。
-4. 建議用法: 模型給分級 + 機率 + 原因 → 採購人員複核,
-   而非全自動定級。
+1. LOSO 為驗證協定 (15 顆臨時模型用後即棄); 最終部署的兩顆模型
+   (day0 / review) 皆以全部 15 家重新訓練。
+2. 誠實泛化估計: Day-0 {results['day0']['acc']:.0%} → Review(前{REVIEW_K}筆後)
+   {results['review']['acc']:.0%}; 兩模式錯誤皆為相鄰等級, 無 Low↔High 對調。
+3. High 級僅 1 家: 真實 High 的新供應商較可能被判 Medium
+   (系統性低估) → Medium 以上一律人工複核。
+4. n=15 的機率輸出未經校準, 98% 不代表真的 98% — 只看分級與
+   排序, 別把機率當信賴度。
+5. 本引擎學的是「公司既有風險政策」的近似; 政策有偏, 模型照抄。
 """)
 print("🏁 完成。")

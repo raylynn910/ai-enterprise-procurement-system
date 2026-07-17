@@ -36,6 +36,16 @@ except Exception as e:
     print(f"Warning: ML models failed to load. Using mock fallback. Error: {e}")
     ML_MODELS_LOADED = False
 
+# 新供應商風險評分引擎 (training_scripts/new_supplier_risk_scoring.py 產出)
+# 獨立旗標載入: 這個模型失敗不影響其他模型, 反之亦然
+try:
+    with open(os.path.join(BASE_DIR, "models", "new_supplier_scoring_model.pkl"), "rb") as f:
+        new_supplier_bundle = pickle.load(f)
+    NEW_SUPPLIER_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: new-supplier scoring model failed to load. Error: {e}")
+    NEW_SUPPLIER_MODEL_LOADED = False
+
 app = FastAPI(
     title="Smart Procurement API",
     description="API for the AI-driven Enterprise Procurement System",
@@ -846,3 +856,92 @@ def overview_kpis():
         'avg_esg': round(avg_esg, 1),
         'maverick_count': maverick_count
     }
+
+
+# ----- 新供應商風險評分 API (v2 審計修正版) -----
+
+class NewSupplierRequest(BaseModel):
+    tier: int = Field(..., ge=1, le=3, description="供應商層級 1-3", example=3)
+    esg: float = Field(..., ge=0, le=100, description="ESG 評分 0-100", example=48.0)
+    mav_rate: Optional[float] = Field(None, ge=0, le=1,
+        description="觀察至今的脫軌採購率; 入職當下無交易時留空 → Day-0 模式")
+    single_rate: Optional[float] = Field(None, ge=0, le=1,
+        description="觀察至今的單一來源率; 入職當下無交易時留空 → Day-0 模式")
+    n_transactions: Optional[int] = Field(None, ge=0,
+        description="目前累積交易筆數 (選填, <25 時回應會提醒行為率不穩)")
+
+class RiskReason(BaseModel):
+    feature: str = Field(..., description="影響因素 (商業語言)")
+    value: float = Field(..., description="該供應商的特徵值")
+    contribution: float = Field(..., description="對預測類別 logit 的貢獻 (正=推向此級)")
+    direction: str = Field(..., description="推向此級 / 拉離此級")
+
+class NewSupplierResponse(BaseModel):
+    mode: str = Field(..., description="day0 (入職當下) 或 review (交易累積後)")
+    risk_level: str = Field(..., description="預測風險等級: Low / Medium / High")
+    probabilities: dict = Field(..., description="三類機率 (未校準, 僅供排序參考)")
+    reasons: list[RiskReason] = Field(..., description="為什麼是這一級")
+    loso_accuracy: float = Field(..., description="該模式留一供應商驗證準確率")
+    caveat: str = Field(..., description="使用注意")
+
+@app.post("/api/predict/new-supplier-risk", response_model=NewSupplierResponse)
+def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
+    """
+    [ML] 新供應商風險分級 API (v2)
+
+    回答: 「第 16 家新供應商依公司既有風險政策會被分到哪一級? 為什麼?」
+    - Day-0 模式 (入職當下, 只有 tier+esg): LOSO 驗證 67%
+    - Review 模式 (交易累積後, 加行為率): LOSO 驗證 73%
+    兩模式錯誤皆為相鄰等級、無 Low↔High 對調。Medium 以上建議人工複核。
+    """
+    if not NEW_SUPPLIER_MODEL_LOADED:
+        raise HTTPException(status_code=503, detail="New-supplier scoring model not loaded")
+
+    try:
+        b = new_supplier_bundle
+        # 行為率兩者皆提供 → review 模式; 否則 day0
+        if request.mav_rate is not None and request.single_rate is not None:
+            mode, model, feats = "review", b["review_model"], b["features_review"]
+            row = {"tier": request.tier, "esg": request.esg,
+                   "mav_rate": request.mav_rate, "single_rate": request.single_rate}
+        else:
+            mode, model, feats = "day0", b["day0_model"], b["features_day0"]
+            row = {"tier": request.tier, "esg": request.esg}
+
+        profile = pd.DataFrame([row])[feats]
+        proba = model.predict_proba(profile)[0]
+        clf = model.named_steps["clf"]
+        pred_idx = int(proba.argmax())
+        risk_order = b["risk_order"]
+
+        # 可解釋性: 標準化特徵值 × 預測類別係數
+        z = model.named_steps["scaler"].transform(profile)[0]
+        contrib = z * clf.coef_[list(clf.classes_).index(pred_idx)]
+        order = abs(contrib).argsort()[::-1]
+
+        reasons = [RiskReason(
+            feature=b["feature_labels"].get(feats[int(j)], feats[int(j)]),
+            value=round(float(profile.iloc[0, int(j)]), 4),
+            contribution=round(float(contrib[int(j)]), 3),
+            direction="推向此級" if contrib[int(j)] > 0 else "拉離此級",
+        ) for j in order]
+
+        caveat = ("High 級訓練樣本僅 1 家, 真實 High 可能被低估為 Medium; "
+                  "Medium 以上建議人工複核。機率未經校準, 僅供排序參考。")
+        if mode == "review" and request.n_transactions is not None and request.n_transactions < 25:
+            caveat += f" 目前僅 {request.n_transactions} 筆交易, 行為率仍不穩, 建議並看 Day-0 結果。"
+
+        return NewSupplierResponse(
+            mode=mode,
+            risk_level=risk_order[pred_idx],
+            probabilities={risk_order[c]: round(float(proba[i]), 4)
+                           for i, c in enumerate(clf.classes_)},
+            reasons=reasons,
+            loso_accuracy=round(float(b["loso_accuracy"][mode]), 3),
+            caveat=caveat,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in new-supplier risk scoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
