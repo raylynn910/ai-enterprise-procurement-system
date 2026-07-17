@@ -1,6 +1,7 @@
 // dashboard.js
 
 document.addEventListener('DOMContentLoaded', () => {
+    loadOverviewKPIs();
     // SPA Navigation Logic
     const navItems = document.querySelectorAll('.nav-item[data-target]');
     const views = document.querySelectorAll('.view-section');
@@ -194,7 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 // Read the 5 dimensions calculated by the backend ML API
-                const complianceScore = result.compliance_score || 0;
+                const reputationScore = result.reputation_score || 0;
                 const financialScore = result.financial_score || 0;
                 const deliveryScore = result.delivery_score || 0;
                 const esgDimScore = result.esg_score || 0;
@@ -204,7 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     series: [{
                         name: '供應商能力',
                         data: [
-                            Math.round(complianceScore), 
+                            Math.round(reputationScore), 
                             Math.round(financialScore), 
                             Math.round(deliveryScore), 
                             Math.round(esgDimScore), 
@@ -235,7 +236,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         strokeWidth: 2,
                     },
                     xaxis: {
-                        categories: ['合規性 (Compliance)', '財務穩定 (Financial)', '交期可靠 (Delivery)', '永續發展 (ESG)', '價格競爭力 (Pricing)'],
+                        categories: ['市場聲譽 (Reputation)', '財務穩定 (Financial)', '交期可靠 (Delivery)', '永續發展 (ESG)', '價格競爭力 (Pricing)'],
                         labels: {
                             style: {
                                 colors: ['#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af', '#9ca3af'],
@@ -379,9 +380,98 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Reports Button Logic
-    document.getElementById('btn-weekly-report')?.addEventListener('click', () => {
-        alert('報表生成中... (此處可串接後端 API 下載 PDF)');
+    let reportPieChartInstance = null;
+    let reportBarChartInstance = null;
+
+    document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
+        const btn = document.getElementById('btn-weekly-report');
+        const loadingStatus = document.getElementById('report-loading-status');
+        const dashboard = document.getElementById('report-dashboard');
+        const placeholder = document.getElementById('report-placeholder');
+        
+        btn.disabled = true;
+        loadingStatus.style.display = 'inline-block';
+        
+        try {
+            const res = await fetch('http://localhost:8000/api/reports/weekly');
+            if (!res.ok) throw new Error('API fetching failed');
+            const result = await res.json();
+            
+            // Render Markdown text
+            document.getElementById('val-report-content').innerHTML = marked.parse(result.markdown);
+            
+            // Show dashboard, hide placeholder
+            placeholder.style.display = 'none';
+            dashboard.style.display = 'grid';
+            
+            // Chart 1: Pie Chart (Risk Distribution)
+            const pieCtx = document.getElementById('report-pie-chart');
+            if (reportPieChartInstance) reportPieChartInstance.destroy();
+            reportPieChartInstance = new Chart(pieCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: result.charts.pie.labels,
+                    datasets: [{
+                        data: result.charts.pie.data,
+                        backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+
+            // Chart 2: Bar Chart (Cost Avoidance Trend)
+            const barCtx = document.getElementById('report-bar-chart');
+            if (reportBarChartInstance) reportBarChartInstance.destroy();
+            reportBarChartInstance = new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: result.charts.bar.labels,
+                    datasets: [{
+                        label: 'Cost Avoidance (USD)',
+                        data: result.charts.bar.data,
+                        backgroundColor: 'rgba(56, 189, 248, 0.6)',
+                        borderColor: '#38bdf8',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#94a3b8' },
+                            grid: { color: 'rgba(255,255,255,0.05)' }
+                        },
+                        x: {
+                            ticks: { color: '#94a3b8' },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+        } catch (e) {
+            console.error(e);
+            alert('報表生成失敗，請確認後端已連線。');
+        } finally {
+            btn.disabled = false;
+            loadingStatus.style.display = 'none';
+        }
     });
+
     document.getElementById('btn-monthly-report')?.addEventListener('click', () => {
         alert('報表生成中... (此處可串接後端 API 下載 Excel/PDF)');
     });
@@ -609,41 +699,134 @@ window.switchScenario = async function(scenario) {
     await fetchAndRenderSuppliers();
 };
 
+let recommendationRadarChart = null;
+let recommendationBarChart = null;
+
 async function fetchAndRenderSuppliers() {
-    const list = document.getElementById('recommendation-list');
-    if (!list) return;
+    const podiumList = document.getElementById('recommendation-list');
+    const loadingState = document.getElementById('recommendation-loading');
+    if (!podiumList) return;
     
     const categorySelect = document.getElementById('recommendation-category');
     const category = categorySelect ? categorySelect.value : 'IT Software';
     const scenario = window.currentScenario || 'cost';
 
-    list.innerHTML = '<tr><td colspan="5" style="text-align: center;"><i class="ph ph-spinner-gap ph-spin"></i> 載入推薦清單中...</td></tr>';
+    podiumList.style.display = 'none';
+    loadingState.style.display = 'block';
 
     try {
         const response = await fetch(`http://localhost:8000/api/recommend/suppliers?category=${encodeURIComponent(category)}&scenario=${encodeURIComponent(scenario)}`);
         if (!response.ok) throw new Error('API fetch failed');
         const data = await response.json();
 
-        list.innerHTML = '';
+        loadingState.style.display = 'none';
+        podiumList.style.display = 'flex';
+        podiumList.innerHTML = '';
+        
         if (data.length === 0) {
-            list.innerHTML = '<tr><td colspan="5" style="text-align: center;">該品項目前沒有符合條件的供應商</td></tr>';
+            podiumList.innerHTML = '<div style="text-align: center; color: #a0aec0;">該品項目前沒有符合條件的供應商</div>';
             return;
         }
 
+        // Render Podium Cards
         data.forEach((sup, index) => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><span class="badge ${index === 0 ? 'tier-1' : ''}">${sup.rank}</span></td>
-                <td><strong>${sup.name}</strong> <small>(${sup.country})</small></td>
-                <td class="success-text" style="font-weight: bold;">${sup.score_text}</td>
-                <td><span class="alert-tag success" style="padding: 0.2rem 0.5rem;"><i class="ph ph-check-circle"></i> ${sup.reason}</span></td>
-                <td><button class="btn btn-sm btn-primary">選擇</button></td>
+            const isTop1 = index === 0;
+            const bgGradient = isTop1 ? 'linear-gradient(135deg, rgba(255,215,0,0.1) 0%, rgba(255,215,0,0.02) 100%)' : 'rgba(255, 255, 255, 0.05)';
+            const borderStyle = isTop1 ? 'border: 1px solid rgba(255, 215, 0, 0.3);' : 'border: 1px solid rgba(255, 255, 255, 0.1);';
+            const shadowStyle = isTop1 ? 'box-shadow: 0 4px 20px rgba(255, 215, 0, 0.15);' : '';
+            
+            const card = document.createElement('div');
+            card.style = `background: ${bgGradient}; ${borderStyle} ${shadowStyle} border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;`;
+            
+            card.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <div style="width: 50px; height: 50px; border-radius: 50%; background: ${isTop1 ? '#ffd700' : '#4a5568'}; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'};">
+                        ${isTop1 ? '<i class="ph ph-crown"></i>' : `#${sup.rank}`}
+                    </div>
+                    <div>
+                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.5rem' : '1.25rem'}; color: ${isTop1 ? '#ffd700' : '#fff'};">${sup.name}</h3>
+                        <p style="margin: 0.25rem 0 0 0; color: #a0aec0; font-size: 0.9rem;">${sup.country}</p>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 1.25rem; font-weight: bold; color: #4ade80;">${sup.score_text}</div>
+                    <div style="font-size: 0.85rem; color: #a0aec0; margin-top: 0.25rem;"><i class="ph ph-info"></i> ${sup.reason}</div>
+                    <button class="btn btn-primary btn-sm" style="margin-top: 0.5rem; padding: 0.25rem 1rem;">選擇</button>
+                </div>
             `;
-            list.appendChild(tr);
+            podiumList.appendChild(card);
         });
+
+        // Prepare Chart Data
+        const supplierNames = data.map(d => d.name);
+        const savingsData = data.map(d => d.raw_metrics.savings_pct);
+        const otdData = data.map(d => 100 - d.raw_metrics.days_late * 5); // Rough normalization for OTD score (100 - late*5)
+        const esgData = data.map(d => d.raw_metrics.esg_score);
+        
+        // Render or Update Radar Chart
+        const radarOptions = {
+            series: [{ name: 'Savings Potential', data: savingsData },
+                     { name: 'On-Time Score', data: otdData },
+                     { name: 'ESG Score', data: esgData }],
+            chart: { type: 'radar', height: 350, toolbar: { show: false }, background: 'transparent' },
+            labels: supplierNames,
+            stroke: { width: 2 },
+            fill: { opacity: 0.2 },
+            markers: { size: 4 },
+            xaxis: {
+                labels: {
+                    style: { colors: ['#a0aec0', '#a0aec0', '#a0aec0'], fontSize: '11px', fontFamily: 'Inter' }
+                }
+            },
+            yaxis: { show: false },
+            theme: { mode: 'dark', palette: 'palette1' },
+            legend: { position: 'bottom', labels: { colors: '#fff' } }
+        };
+
+        if (recommendationRadarChart) {
+            recommendationRadarChart.destroy();
+        }
+        recommendationRadarChart = new ApexCharts(document.querySelector("#radar-chart"), radarOptions);
+        recommendationRadarChart.render();
+
+        // Render or Update Bar Chart
+        let primaryMetricData = [];
+        let primaryMetricLabel = '';
+        let primaryColor = '#4ade80';
+
+        if (scenario === 'cost') {
+            primaryMetricData = savingsData;
+            primaryMetricLabel = 'Avg Savings (%)';
+        } else if (scenario === 'urgent') {
+            primaryMetricData = data.map(d => d.raw_metrics.days_late);
+            primaryMetricLabel = 'Avg Days Late';
+            primaryColor = '#facc15';
+        } else {
+            primaryMetricData = esgData;
+            primaryMetricLabel = 'ESG Score';
+            primaryColor = '#60a5fa';
+        }
+
+        const barOptions = {
+            series: [{ name: primaryMetricLabel, data: primaryMetricData }],
+            chart: { type: 'bar', height: 250, toolbar: { show: false }, background: 'transparent' },
+            plotOptions: { bar: { horizontal: true, borderRadius: 4 } },
+            dataLabels: { enabled: true },
+            xaxis: { categories: supplierNames, labels: { style: { colors: '#a0aec0' } } },
+            yaxis: { labels: { style: { colors: '#fff', fontSize: '12px' } } },
+            colors: [primaryColor],
+            theme: { mode: 'dark' }
+        };
+
+        if (recommendationBarChart) {
+            recommendationBarChart.destroy();
+        }
+        recommendationBarChart = new ApexCharts(document.querySelector("#bar-chart"), barOptions);
+        recommendationBarChart.render();
+
     } catch (e) {
         console.error("Failed to fetch recommendations:", e);
-        list.innerHTML = '<tr><td colspan="5" style="text-align: center; color: red;">載入失敗，請確認後端伺服器是否運行中</td></tr>';
+        loadingState.innerHTML = '<div style="color: #ef4444;"><i class="ph ph-warning-circle" style="font-size: 2rem;"></i><p>載入失敗，請確認後端 API 是否正常運作。</p></div>';
     }
 }
 
@@ -822,5 +1005,57 @@ async function fetchRiskOrders() {
         }
     } catch (e) {
         console.error('Failed to fetch risk orders:', e);
+    }
+}
+
+
+// --- Dynamic Overview KPIs ---
+async function loadOverviewKPIs() {
+    try {
+        const response = await fetch('http://localhost:8000/api/overview/kpis');
+        if (!response.ok) throw new Error('API fetch failed');
+        const data = await response.json();
+
+        // 1. Avg Savings
+        const tagSavings = document.getElementById('tag-est-savings');
+        if (document.getElementById('val-est-savings')) {
+            document.getElementById('val-est-savings').innerHTML = data.avg_savings + '% <span id="tag-est-savings" class="trend up"><i class="ph ph-trend-up"></i></span>';
+        }
+
+        // 2. Avg Risk
+        const elRisk = document.getElementById('val-avg-risk');
+        if (elRisk) {
+            let riskClass = 'success';
+            let riskText = '安全';
+            if (data.avg_risk_score > 60) { riskClass = 'danger'; riskText = '高危險'; }
+            else if (data.avg_risk_score > 30) { riskClass = 'warning'; riskText = '中等'; }
+            elRisk.innerHTML = data.avg_risk_score + ' / 100 <span id="tag-avg-risk" class="status-tag ' + riskClass + '">' + riskText + '</span>';
+        }
+
+        // 3. High Risk Count
+        const elHighRisk = document.getElementById('val-high-risk-count');
+        if (elHighRisk) {
+            let hrClass = data.high_risk_count > 10 ? 'danger' : 'success';
+            let hrText = data.high_risk_count > 10 ? '需關注' : '健康';
+            elHighRisk.innerHTML = data.high_risk_count + ' 筆 <span id="tag-high-risk-count" class="status-tag ' + hrClass + '">' + hrText + '</span>';
+        }
+
+        // 4. Avg ESG
+        const elEsg = document.getElementById('val-avg-esg');
+        if (elEsg) {
+            let esgClass = data.avg_esg > 70 ? 'success' : 'warning';
+            let esgText = data.avg_esg > 70 ? '健康' : '待加強';
+            elEsg.innerHTML = data.avg_esg + ' / 100 <span id="tag-avg-esg" class="status-tag ' + esgClass + '">' + esgText + '</span>';
+        }
+
+        // 5. Maverick Count
+        const elMav = document.getElementById('val-maverick-count');
+        if (elMav) {
+            let mavClass = data.maverick_count > 0 ? 'danger' : 'success';
+            let mavText = data.maverick_count > 0 ? '需關注' : '合規';
+            elMav.innerHTML = data.maverick_count + ' 筆 <span id="tag-maverick-count" class="status-tag ' + mavClass + '">' + mavText + '</span>';
+        }
+    } catch (e) {
+        console.error('Failed to load KPIs:', e);
     }
 }
