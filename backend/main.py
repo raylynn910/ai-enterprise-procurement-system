@@ -846,3 +846,87 @@ def overview_kpis():
         'avg_esg': round(avg_esg, 1),
         'maverick_count': maverick_count
     }
+
+@app.get("/api/supplier/search")
+def search_supplier(q: str):
+    """
+    Search for a supplier by name and return a 360 scorecard of their historical data.
+    """
+    if not q or len(q.strip()) == 0:
+        return {"error": "Query cannot be empty"}
+        
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Search for the supplier
+        search_query = f"%{q.strip().lower()}%"
+        cursor.execute("""
+            SELECT Supplier_ID, Supplier_Name, Supplier_Risk, Supplier_Tier, Supplier_ESG_Score, Preferred_Supplier
+            FROM procurement_data 
+            WHERE LOWER(Supplier_Name) LIKE ? OR LOWER(Supplier_ID) LIKE ?
+            LIMIT 1
+        """, (search_query, search_query))
+        
+        supplier_row = cursor.fetchone()
+        
+        if not supplier_row:
+            conn.close()
+            return {"found": False, "message": "No supplier found matching the query."}
+            
+        supplier_id = supplier_row['Supplier_ID']
+        supplier_name = supplier_row['Supplier_Name']
+        risk_level = supplier_row['Supplier_Risk']
+        tier = supplier_row['Supplier_Tier']
+        esg_score = supplier_row['Supplier_ESG_Score']
+        preferred = supplier_row['Preferred_Supplier']
+        
+        # 2. Get Aggregated Metrics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_pos,
+                SUM(CAST(Spend AS FLOAT)) as total_spend,
+                AVG(CAST(Savings_Pct AS FLOAT)) as avg_savings,
+                AVG(CAST(Days_Late AS FLOAT)) as avg_days_late,
+                SUM(CASE WHEN Maverick_Spend COLLATE NOCASE IN ('yes', 'true', '1') THEN 1 ELSE 0 END) as maverick_count
+            FROM procurement_data
+            WHERE Supplier_ID = ?
+        """, (supplier_id,))
+        
+        metrics_row = cursor.fetchone()
+        
+        # 3. Get Recent POs
+        cursor.execute("""
+            SELECT PO_ID, PO_Date, Spend, Category, Supplier_Risk, Maverick_Spend, PO_Status
+            FROM procurement_data
+            WHERE Supplier_ID = ?
+            ORDER BY PO_Date DESC
+            LIMIT 5
+        """, (supplier_id,))
+        
+        recent_pos = [dict(r) for r in cursor.fetchall()]
+        
+        conn.close()
+        
+        return {
+            "found": True,
+            "supplier": {
+                "id": supplier_id,
+                "name": supplier_name,
+                "risk_level": risk_level,
+                "tier": tier,
+                "esg_score": esg_score,
+                "preferred": preferred
+            },
+            "metrics": {
+                "total_pos": metrics_row['total_pos'] if metrics_row else 0,
+                "total_spend": metrics_row['total_spend'] if metrics_row and metrics_row['total_spend'] else 0,
+                "avg_savings": round(metrics_row['avg_savings'], 2) if metrics_row and metrics_row['avg_savings'] else 0,
+                "avg_days_late": round(metrics_row['avg_days_late'], 1) if metrics_row and metrics_row['avg_days_late'] else 0,
+                "maverick_count": metrics_row['maverick_count'] if metrics_row and metrics_row['maverick_count'] else 0
+            },
+            "recent_pos": recent_pos
+        }
+    except Exception as e:
+        print(f"Search API Error: {e}")
+        return {"error": str(e)}

@@ -1092,3 +1092,92 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+
+// Global Search Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('global-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const query = searchInput.value.trim();
+                if (!query) return;
+                
+                try {
+                    const res = await fetch(`/api/supplier/search?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    
+                    if (!data.found) {
+                        alert(data.message || '找不到符合條件的供應商');
+                        return;
+                    }
+                    
+                    // Switch to view-supplier
+                    document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                    document.querySelector('.nav-item[data-target="view-supplier"]')?.classList.add('active');
+                    
+                    document.querySelectorAll('.view-section').forEach(view => view.classList.remove('active'));
+                    document.getElementById('view-supplier').classList.add('active');
+                    
+                    // Update Scorecard Data
+                    document.getElementById('sc-supplier-name').innerText = data.supplier.name;
+                    
+                    // Risk Badge
+                    const rBadge = document.getElementById('sc-supplier-risk');
+                    rBadge.innerText = `Risk: ${data.supplier.risk_level}`;
+                    if (data.supplier.risk_level === 'Low') {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
+                    } else if (data.supplier.risk_level === 'High') {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);';
+                    } else {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning);';
+                    }
+                    
+                    // KPI Cards
+                    document.getElementById('sc-total-spend').innerText = '$' + Number(data.metrics.total_spend).toLocaleString();
+                    document.getElementById('sc-total-pos').innerText = data.metrics.total_pos;
+                    
+                    const avgSav = document.getElementById('sc-avg-savings');
+                    avgSav.innerText = data.metrics.avg_savings + '%';
+                    avgSav.className = data.metrics.avg_savings > 0 ? 'kpi-value success-text' : 'kpi-value danger-text';
+                    
+                    const avgLate = document.getElementById('sc-avg-late');
+                    avgLate.innerText = data.metrics.avg_days_late + ' 天';
+                    avgLate.className = data.metrics.avg_days_late > 0 ? 'kpi-value warning-text' : 'kpi-value success-text';
+                    
+                    const esg = document.getElementById('sc-esg-score');
+                    esg.innerText = data.supplier.esg_score;
+                    esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
+                    
+                    // Recent POs
+                    const tbody = document.getElementById('sc-po-tbody');
+                    tbody.innerHTML = '';
+                    
+                    if (data.recent_pos && data.recent_pos.length > 0) {
+                        data.recent_pos.forEach(po => {
+                            let mavClass = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'danger-text' : 'success-text';
+                            let mavText = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'Yes' : 'No';
+                            
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${po.PO_ID}</td>
+                                <td>${po.PO_Date}</td>
+                                <td>${po.Category}</td>
+                                <td>$${Number(po.Spend).toLocaleString()}</td>
+                                <td class="${mavClass}">${mavText}</td>
+                                <td>${po.PO_Status}</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
+                    }
+                    
+                } catch (e) {
+                    console.error('Search failed:', e);
+                    alert('搜尋時發生錯誤，請稍後再試。');
+                }
+            }
+        });
+    }
+});

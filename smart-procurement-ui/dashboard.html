@@ -45,7 +45,7 @@
             <header class="topbar glass-panel">
                 <div class="search-bar">
                     <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" placeholder="搜尋類別、供應商或模型狀態...">
+                    <input type="text" id="global-search-input" placeholder="搜尋供應商名稱... (e.g. TSMC, Cornerstone)">
                 </div>
                 <div class="header-actions">
                     <button class="icon-btn"><i class="ph ph-bell"></i><span class="badge">2</span></button>
@@ -258,46 +258,57 @@
                 </div>
             </div>
 
-            <!-- VIEW: Supplier Analysis -->
+            <!-- VIEW: Supplier Analysis (Scorecard) -->
             <div id="view-supplier" class="view-section">
-                <div class="dashboard-header">
-                    <h1>供應商分析 (Supplier Analysis)</h1>
-                    <p>供應商 Tier、Region、ESG Score 與歷史爭議情況追蹤。</p>
+                <div class="dashboard-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1 id="sc-supplier-name">供應商名稱 (Supplier Name)</h1>
+                        <p>Vendor 360° 績效計分卡與歷史採購紀錄</p>
+                    </div>
+                    <div>
+                        <span class="badge" id="sc-supplier-risk" style="font-size:1.1rem; padding:0.5rem 1rem;">Risk: -</span>
+                    </div>
                 </div>
 
+                <!-- KPI Cards -->
+                <div class="kpi-grid" style="margin-bottom: 2rem; display:grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">歷史總採購金額</p>
+                        <h3 class="kpi-value" id="sc-total-spend" style="font-size:1.8rem; margin:0.5rem 0;">$0</h3>
+                        <p class="kpi-subtext" style="font-size:0.8rem;"><span id="sc-total-pos">0</span> 筆 PO 紀錄</p>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">平均節省率</p>
+                        <h3 class="kpi-value" id="sc-avg-savings" style="font-size:1.8rem; margin:0.5rem 0;">0%</h3>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">平均遲到天數</p>
+                        <h3 class="kpi-value" id="sc-avg-late" style="font-size:1.8rem; margin:0.5rem 0;">0 天</h3>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">ESG 永續評分</p>
+                        <h3 class="kpi-value" id="sc-esg-score" style="font-size:1.8rem; margin:0.5rem 0;">0</h3>
+                    </div>
+                </div>
+
+                <!-- Recent PO Table -->
                 <div class="card glass-panel">
-                    <table class="data-table" id="supplier-table">
+                    <div class="card-header">
+                        <h3><i class="ph ph-clock-counter-clockwise"></i> 近期採購紀錄 (Recent POs)</h3>
+                    </div>
+                    <table class="data-table">
                         <thead>
                             <tr>
-                                <th>供應商名稱</th>
-                                <th>Risk</th>
-                                <th>ESG Score</th>
-                                <th>Delivery (OTD)</th>
-                                <th>爭議 (Controversies)</th>
+                                <th>PO 編號</th>
+                                <th>日期</th>
+                                <th>採購類別</th>
+                                <th>金額 (Spend)</th>
+                                <th>越權採購 (Maverick)</th>
+                                <th>狀態</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr>
-                                <td id="val-sup-name1"><strong>CloudTech Solutions</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-risk1">Low</span></td>
-                                <td id="val-sup-esg1" class="success-text">85</td>
-                                <td id="val-sup-otd1" class="success-text">95% (0 Days Late)</td>
-                                <td id="val-sup-cont1">0</td>
-                            </tr>
-                            <tr>
-                                <td id="val-sup-name2"><strong>Legacy IT Partners</strong></td>
-                                <td><span class="badge" style="background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);" id="val-sup-risk2">High</span></td>
-                                <td id="val-sup-esg2" class="danger-text">45</td>
-                                <td id="val-sup-otd2" class="danger-text">60% (14 Days Late)</td>
-                                <td id="val-sup-cont2" class="warning-text">2</td>
-                            </tr>
-                            <tr>
-                                <td id="val-sup-name3"><strong>Agile Softworks</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-risk3">Low</span></td>
-                                <td id="val-sup-esg3" class="success-text">92</td>
-                                <td id="val-sup-otd3" class="success-text">98% (0 Days Late)</td>
-                                <td id="val-sup-cont3">0</td>
-                            </tr>
+                        <tbody id="sc-po-tbody">
+                            <tr><td colspan="6" style="text-align:center; padding: 2rem;">請透過最上方搜尋列查詢特定供應商。</td></tr>
                         </tbody>
                     </table>
                 </div>
