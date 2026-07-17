@@ -1208,3 +1208,66 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+
+// Add Supplier Modal Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const modal = document.getElementById('add-supplier-modal');
+    const btnOpen = document.getElementById('btn-open-add-supplier');
+    const btnClose = document.getElementById('btn-close-modal');
+    const btnCancel = document.getElementById('btn-cancel-add');
+    const form = document.getElementById('add-supplier-form');
+    const btnSubmit = document.getElementById('btn-submit-add');
+
+    if (btnOpen) {
+        btnOpen.addEventListener('click', () => {
+            modal.style.display = 'flex';
+        });
+    }
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+        form.reset();
+    };
+
+    if (btnClose) btnClose.addEventListener('click', closeModal);
+    if (btnCancel) btnCancel.addEventListener('click', closeModal);
+
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            btnSubmit.innerHTML = 'Processing...';
+            btnSubmit.disabled = true;
+
+            const payload = {
+                name: document.getElementById('as-name').value,
+                country: document.getElementById('as-country').value,
+                category: document.getElementById('as-category').value,
+                risk_level: document.getElementById('as-risk').value,
+                esg_score: parseFloat(document.getElementById('as-esg').value)
+            };
+
+            try {
+                const res = await fetch('http://localhost:8000/api/supplier/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Vendor onboarded successfully! AI initial evaluation complete. You can now search for this vendor.');
+                    closeModal();
+                    // Optionally refresh the current view if needed
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('API Request Failed');
+            } finally {
+                btnSubmit.innerHTML = 'Submit & AI Evaluate';
+                btnSubmit.disabled = false;
+            }
+        });
+    }
+});
