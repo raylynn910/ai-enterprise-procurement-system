@@ -113,6 +113,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 riskBadge.style.color = rClass;
                 riskBadge.style.borderColor = rClass;
                 riskBadge.style.background = rBg;
+                
+                // Toggle ERP Sync Button
+                const btnSyncErp = document.getElementById('btn-sync-erp');
+                if (btnSyncErp) {
+                    if (risk !== 'High') {
+                        btnSyncErp.style.display = 'flex';
+                        btnSyncErp.disabled = false;
+                        btnSyncErp.innerHTML = '<i class="ph ph-cloud-arrow-up" style="font-size: 1.1rem;"></i> 匯入企業採購系統 (ERP)';
+                        btnSyncErp.style.background = 'linear-gradient(90deg, #0ea5e9, #2563eb)';
+                    } else {
+                        btnSyncErp.style.display = 'none';
+                    }
+                }
 
                 document.getElementById('ob-res-esgval').innerText = `${esgScore.toFixed(0)} / 100`;
                 document.getElementById('ob-res-esgbar').style.width = `${esgScore}%`;
@@ -1059,3 +1072,23 @@ async function loadOverviewKPIs() {
         console.error('Failed to load KPIs:', e);
     }
 }
+
+
+// Setup ERP Sync Button Event
+document.addEventListener('DOMContentLoaded', () => {
+    // We can just add event delegation to document since the button might be dynamically hidden/shown
+    document.addEventListener('click', (e) => {
+        const btnSyncErp = e.target.closest('#btn-sync-erp');
+        if (btnSyncErp && !btnSyncErp.disabled) {
+            btnSyncErp.disabled = true;
+            btnSyncErp.innerHTML = '<i class="ph ph-spinner-gap ph-spin" style="font-size: 1.1rem;"></i> 同步至 ERP 中...';
+            btnSyncErp.style.background = 'rgba(255,255,255,0.1)';
+            
+            setTimeout(() => {
+                const fakeVendorId = 'V-' + Math.floor(10000 + Math.random() * 90000);
+                btnSyncErp.innerHTML = `<i class="ph ph-check-circle" style="font-size: 1.1rem;"></i> 已成功建檔 (Vendor ID: ${fakeVendorId})`;
+                btnSyncErp.style.background = 'var(--success)';
+            }, 2000);
+        }
+    });
+});
