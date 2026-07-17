@@ -1112,13 +1112,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
                     
-                    // Switch to view-supplier
-                    document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-                    document.querySelector('.nav-item[data-target="view-supplier"]')?.classList.add('active');
-                    
-                    document.querySelectorAll('.view-section').forEach(view => view.classList.remove('active'));
-                    document.getElementById('view-supplier').classList.add('active');
-                    
+                    // Switch to view-supplier by triggering the nav item click
+                    const supplierNav = document.querySelector('.nav-item[data-target="view-supplier"]');
+                    if (supplierNav) {
+                        supplierNav.click();
+                    }
                     // Update Scorecard Data
                     document.getElementById('sc-supplier-name').innerText = data.supplier.name;
                     
