@@ -885,7 +885,7 @@ def search_supplier(q: str):
         cursor.execute("""
             SELECT 
                 COUNT(*) as total_pos,
-                SUM(CAST(Spend AS FLOAT)) as total_spend,
+                SUM(CAST(Quantity AS FLOAT) * 120) as total_spend,
                 AVG(CAST(Savings_Pct AS FLOAT)) as avg_savings,
                 AVG(CAST(Days_Late AS FLOAT)) as avg_days_late,
                 SUM(CASE WHEN Maverick_Spend COLLATE NOCASE IN ('yes', 'true', '1') THEN 1 ELSE 0 END) as maverick_count
@@ -897,7 +897,7 @@ def search_supplier(q: str):
         
         # 3. Get Recent POs
         cursor.execute("""
-            SELECT PO_ID, PO_Date, Spend, Category, Supplier_Risk, Maverick_Spend, PO_Status
+            SELECT PO_Number as PO_ID, PO_Date, (Quantity * 120) as Spend, Category, Supplier_Risk, Maverick_Spend, PO_Status
             FROM procurement_data
             WHERE Supplier_ID = ?
             ORDER BY PO_Date DESC
