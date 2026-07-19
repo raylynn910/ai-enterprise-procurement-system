@@ -46,6 +46,16 @@ except Exception as e:
     print(f"Warning: new-supplier scoring model failed to load. Error: {e}")
     NEW_SUPPLIER_MODEL_LOADED = False
 
+# 供應商財務風險模型 (training_scripts/supplier_financial_risk.py 產出,
+# 訓練自 UCI 台灣企業破產真實資料)
+try:
+    with open(os.path.join(BASE_DIR, "models", "financial_risk_model.pkl"), "rb") as f:
+        financial_risk_bundle = pickle.load(f)
+    FINANCIAL_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: financial risk model failed to load. Error: {e}")
+    FINANCIAL_MODEL_LOADED = False
+
 app = FastAPI(
     title="Smart Procurement API",
     description="API for the AI-driven Enterprise Procurement System",
@@ -945,3 +955,85 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
     except Exception as e:
         print(f"Error in new-supplier risk scoring: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ----- 供應商財務風險 API (UCI 台灣真實資料 ML 模型 + Altman Z'' 即時引擎) -----
+
+import financial_risk as fr
+
+class FinancialRatiosRequest(BaseModel):
+    ratios: dict = Field(..., description=(
+        "UCI 正規化財務比率 (0-1), key 為特徵名。可只給部分, "
+        "未提供者以訓練集中位數補值。例: "
+        "{'Net Income to Total Assets': 0.6, 'Total debt/Total net worth': 0.02}"))
+
+class FinancialRiskResponse(BaseModel):
+    probability: float = Field(..., description="破產機率 (模型輸出)")
+    risk_tier: str = Field(..., description="High / Watch / Low")
+    top_factors: list = Field(..., description="影響最大的特徵貢獻 (正=推向破產)")
+    filled_with_median: int = Field(..., description="以中位數補值的特徵數")
+    model_info: str = Field(..., description="模型與資料來源")
+
+@app.post("/api/predict/financial-risk", response_model=FinancialRiskResponse)
+def predict_financial_risk(request: FinancialRatiosRequest = Body(...)):
+    """
+    [ML] 供應商財務風險 — 輸入 UCI 正規化財務比率, 輸出破產機率與分級。
+    模型: XGBoost, 訓練自台灣 6,819 家真實企業 (test AUC 0.958)。
+    """
+    if not FINANCIAL_MODEL_LOADED:
+        raise HTTPException(status_code=503, detail="Financial risk model not loaded")
+    try:
+        b = financial_risk_bundle
+        feats = b["feature_names"]
+        unknown = [k for k in request.ratios if k not in feats]
+        if unknown:
+            raise HTTPException(status_code=422,
+                detail=f"未知特徵名: {unknown[:5]} (需為 UCI 資料集欄名)")
+        row = dict(b["train_medians"])
+        row.update({k: float(v) for k, v in request.ratios.items()})
+        Xrow = pd.DataFrame([row])[feats]
+
+        proba = float(b["model"].predict_proba(Xrow)[0, 1])
+        thr = b["thresholds"]
+        tier = "High" if proba >= thr["high"] else ("Watch" if proba >= thr["watch"] else "Low")
+
+        # 可解釋性: XGBoost 逐特徵貢獻 (SHAP-style pred_contribs)
+        import xgboost as _xgb
+        contribs = b["model"].get_booster().predict(
+            _xgb.DMatrix(Xrow), pred_contribs=True)[0][:-1]  # 末位是 bias
+        order = abs(contribs).argsort()[::-1][:5]
+        top = [{"feature": feats[i],
+                "value": round(float(Xrow.iloc[0, i]), 4),
+                "contribution": round(float(contribs[i]), 3),
+                "direction": "↑ 推升風險" if contribs[i] > 0 else "↓ 降低風險",
+                "user_provided": feats[i] in request.ratios}
+               for i in order]
+
+        return FinancialRiskResponse(
+            probability=round(proba, 4),
+            risk_tier=tier,
+            top_factors=top,
+            filled_with_median=len(feats) - len(request.ratios),
+            model_info=f"{b['model_name']} | {b['data_source']} | test AUC={b['metrics']['test_auc']:.3f}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in financial risk: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/assess/company-financial")
+def assess_company_financial(name: str = Query(..., description="公司名稱或股票代號 (如 台積電 / 2330.TW)")):
+    """
+    [即時] 公司名稱 → Altman Z''-score 財務風險評估。
+    以 yfinance 抓取最新年報實算 (上市櫃公司), 未上市/查無財報時誠實回報。
+    """
+    result, err = fr.assess_company(name.strip())
+    if err:
+        raise HTTPException(status_code=404, detail=err)
+    result["method"] = ("Altman Z''-score (1995 新興市場版): "
+                        "Z''=6.56·X1+3.26·X2+6.72·X3+1.05·X4; "
+                        ">2.6 安全 | 1.1-2.6 灰色 | <1.1 危險")
+    result["caveat"] = ("Z-score 為公式型預警指標, 非本專案 ML 模型輸出; "
+                        "ML 模型 (UCI 正規化比率空間) 請用 /api/predict/financial-risk。")
+    return result
