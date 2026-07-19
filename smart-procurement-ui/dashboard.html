@@ -45,9 +45,12 @@
             <header class="topbar glass-panel">
                 <div class="search-bar">
                     <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" placeholder="搜尋類別、供應商或模型狀態...">
+                    <input type="text" id="global-search-input" placeholder="搜尋供應商名稱... (e.g. TSMC, Cornerstone)">
                 </div>
                 <div class="header-actions">
+                    <button id="btn-open-add-supplier" class="btn-primary" style="padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; border: none; cursor: pointer; background: var(--primary); color: #000;">
+                        <i class="ph ph-plus-circle"></i> Add Vendor
+                    </button>
                     <button class="icon-btn"><i class="ph ph-bell"></i><span class="badge">2</span></button>
                     <button class="icon-btn"><i class="ph ph-gear"></i></button>
                 </div>
@@ -258,46 +261,57 @@
                 </div>
             </div>
 
-            <!-- VIEW: Supplier Analysis -->
+            <!-- VIEW: Supplier Analysis (Scorecard) -->
             <div id="view-supplier" class="view-section">
-                <div class="dashboard-header">
-                    <h1>供應商分析 (Supplier Analysis)</h1>
-                    <p>供應商 Tier、Region、ESG Score 與歷史爭議情況追蹤。</p>
+                <div class="dashboard-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1 id="sc-supplier-name">供應商名稱 (Supplier Name)</h1>
+                        <p>Vendor 360° 績效計分卡與歷史採購紀錄</p>
+                    </div>
+                    <div>
+                        <span class="badge" id="sc-supplier-risk" style="font-size:1.1rem; padding:0.5rem 1rem;">Risk: -</span>
+                    </div>
                 </div>
 
+                <!-- KPI Cards -->
+                <div class="kpi-grid" style="margin-bottom: 2rem; display:grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;">
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">歷史總採購金額</p>
+                        <h3 class="kpi-value" id="sc-total-spend" style="font-size:1.8rem; margin:0.5rem 0;">$0</h3>
+                        <p class="kpi-subtext" style="font-size:0.8rem;"><span id="sc-total-pos">0</span> 筆 PO 紀錄</p>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">平均節省率</p>
+                        <h3 class="kpi-value" id="sc-avg-savings" style="font-size:1.8rem; margin:0.5rem 0;">0%</h3>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">平均遲到天數</p>
+                        <h3 class="kpi-value" id="sc-avg-late" style="font-size:1.8rem; margin:0.5rem 0;">0 天</h3>
+                    </div>
+                    <div class="kpi-card" style="background: rgba(255,255,255,0.05); padding: 1.5rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+                        <p class="kpi-title" style="color:var(--text-muted); font-size:0.9rem;">ESG 永續評分</p>
+                        <h3 class="kpi-value" id="sc-esg-score" style="font-size:1.8rem; margin:0.5rem 0;">0</h3>
+                    </div>
+                </div>
+
+                <!-- Recent PO Table -->
                 <div class="card glass-panel">
-                    <table class="data-table" id="supplier-table">
+                    <div class="card-header">
+                        <h3><i class="ph ph-clock-counter-clockwise"></i> 近期採購紀錄 (Recent POs)</h3>
+                    </div>
+                    <table class="data-table">
                         <thead>
                             <tr>
-                                <th>供應商名稱</th>
-                                <th>Risk</th>
-                                <th>ESG Score</th>
-                                <th>Delivery (OTD)</th>
-                                <th>爭議 (Controversies)</th>
+                                <th>PO 編號</th>
+                                <th>日期</th>
+                                <th>採購類別</th>
+                                <th>金額 (Spend)</th>
+                                <th>越權採購 (Maverick)</th>
+                                <th>狀態</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <tr>
-                                <td id="val-sup-name1"><strong>CloudTech Solutions</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-risk1">Low</span></td>
-                                <td id="val-sup-esg1" class="success-text">85</td>
-                                <td id="val-sup-otd1" class="success-text">95% (0 Days Late)</td>
-                                <td id="val-sup-cont1">0</td>
-                            </tr>
-                            <tr>
-                                <td id="val-sup-name2"><strong>Legacy IT Partners</strong></td>
-                                <td><span class="badge" style="background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);" id="val-sup-risk2">High</span></td>
-                                <td id="val-sup-esg2" class="danger-text">45</td>
-                                <td id="val-sup-otd2" class="danger-text">60% (14 Days Late)</td>
-                                <td id="val-sup-cont2" class="warning-text">2</td>
-                            </tr>
-                            <tr>
-                                <td id="val-sup-name3"><strong>Agile Softworks</strong></td>
-                                <td><span class="badge tier-1" id="val-sup-risk3">Low</span></td>
-                                <td id="val-sup-esg3" class="success-text">92</td>
-                                <td id="val-sup-otd3" class="success-text">98% (0 Days Late)</td>
-                                <td id="val-sup-cont3">0</td>
-                            </tr>
+                        <tbody id="sc-po-tbody">
+                            <tr><td colspan="6" style="text-align:center; padding: 2rem;">請透過最上方搜尋列查詢特定供應商。</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -345,6 +359,49 @@
                             </div>
                             <button type="button" class="btn btn-primary btn-block mt-4" id="btn-assess-supplier"><i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描</button>
                         </form>
+                    </div>
+
+                    <!-- Loading Panel -->
+                    <div class="card glass-panel result-panel" id="onboarding-loading" style="display: none; justify-content: center; align-items: center; text-align: center; border-top: 4px solid var(--primary);">
+                        <div style="padding: 3rem 1rem;">
+                            <!-- Futuristic Scanner Animation -->
+                            <div style="position: relative; width: 120px; height: 120px; margin: 0 auto 2rem auto;">
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; border: 2px dashed rgba(0, 240, 255, 0.3); border-radius: 50%; animation: spin 4s linear infinite;"></div>
+                                <div style="position: absolute; top:10%; left:10%; width:80%; height:80%; border: 2px solid rgba(16, 185, 129, 0.5); border-radius: 50%; border-top-color: transparent; animation: spin 2s ease-in-out infinite reverse;"></div>
+                                <i class="ph ph-fingerprint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 3rem; color: var(--primary); animation: pulse 1.5s infinite;"></i>
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; background: linear-gradient(to bottom, rgba(0,240,255,0.2) 0%, transparent 100%); clip-path: polygon(50% 50%, 0 0, 100% 0); animation: scan 2s linear infinite; transform-origin: center;"></div>
+                            </div>
+                            
+                            <h3 style="color: var(--primary); letter-spacing: 2px; margin-bottom: 0.5rem; font-weight: 500;">AI 深度網路徵信中...</h3>
+                            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">正在透過 OpenCorporates 及 Adverse Media 進行跨國交叉比對</p>
+                            
+                            <!-- Loading Steps -->
+                            <div style="text-align: left; display: inline-block; font-size: 0.9rem;">
+                                <div id="ob-load-step1" style="color: var(--text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle-notch ph-spin" style="color: var(--primary);"></i> 連線至全球實體註冊庫
+                                </div>
+                                <div id="ob-load-step2" style="color: var(--text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 掃描國際制裁黑名單 (PEP)
+                                </div>
+                                <div id="ob-load-step3" style="color: var(--text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 彙整過去五年負面新聞爭議
+                                </div>
+                                <div id="ob-load-step4" style="color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 生成動態多維度風險雷達
+                                </div>
+                            </div>
+                        </div>
+                        <style>
+                            @keyframes scan {
+                                0% { transform: rotate(0deg); }
+                                100% { transform: rotate(360deg); }
+                            }
+                            @keyframes pulse {
+                                0% { opacity: 0.5; }
+                                50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
+                                100% { opacity: 0.5; }
+                            }
+                        </style>
                     </div>
 
                     <!-- Result Panel -->
@@ -475,5 +532,58 @@
     </div>
 
     <script src="dashboard.js"></script>
+
+    <!-- Add Supplier Drawer -->
+    <div id="add-supplier-drawer" style="position: fixed; top: 0; right: -500px; width: 400px; height: 100vh; background: #0a0e17; z-index: 1000; transition: right 0.3s ease-in-out; border-left: 1px solid rgba(0, 240, 255, 0.3); padding: 2rem; box-shadow: -5px 0 25px rgba(0,0,0,0.8); overflow-y: auto; display: flex; flex-direction: column;">
+        
+        <div class="drawer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <h2 style="font-size: 1.5rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; color: #fff;">
+                <i class="ph ph-buildings" style="color: var(--primary);"></i> 新增供應商建檔
+            </h2>
+            <button id="btn-close-drawer" class="icon-btn" style="background: none; border: none; color: #a0aec0; font-size: 1.5rem; cursor: pointer; transition: color 0.2s;"><i class="ph ph-x"></i></button>
+        </div>
+        
+        <div class="drawer-body" style="flex: 1;">
+            <form id="add-supplier-form" style="display: flex; flex-direction: column; gap: 1.25rem;">
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #a0aec0; font-size: 0.9rem;">供應商名稱 (Supplier Name)</label>
+                    <input type="text" id="as-name" required placeholder="e.g. Acme Corp" style="padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-family: inherit;">
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #a0aec0; font-size: 0.9rem;">國家 (Country)</label>
+                    <input type="text" id="as-country" required placeholder="e.g. Taiwan" style="padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-family: inherit;">
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #a0aec0; font-size: 0.9rem;">產業類別 (Category)</label>
+                    <select id="as-category" required style="padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: #1a1a2e; color: #fff; font-family: inherit;">
+                        <option value="IT Software">IT Software (資訊軟體)</option>
+                        <option value="Hardware">Hardware (硬體設備)</option>
+                        <option value="Logistics">Logistics (物流運輸)</option>
+                        <option value="Raw Materials">Raw Materials (原物料)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #a0aec0; font-size: 0.9rem;">初始風險評估 (Initial Risk Level)</label>
+                    <select id="as-risk" required style="padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: #1a1a2e; color: #fff; font-family: inherit;">
+                        <option value="Low">Low (低風險)</option>
+                        <option value="Medium">Medium (中風險)</option>
+                        <option value="High">High (高風險)</option>
+                    </select>
+                </div>
+                <div class="form-group" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <label style="color: #a0aec0; font-size: 0.9rem;">ESG 評分 (0-100)</label>
+                    <input type="number" id="as-esg" required min="0" max="100" value="50" style="padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-family: inherit;">
+                </div>
+                
+                <div class="form-actions" style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem;">
+                    <button type="button" id="btn-cancel-drawer" style="padding: 0.75rem 1.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.2); background: transparent; color: #fff; cursor: pointer; font-weight: 500;">取消</button>
+                    <button type="submit" id="btn-submit-add" style="padding: 0.75rem 1.5rem; border-radius: 8px; border: none; background: var(--primary); color: #000; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;"><i class="ph ph-sparkle"></i> 送出並由 AI 評估</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Drawer Overlay (Click to close) -->
+    <div id="drawer-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 999; opacity: 0; transition: opacity 0.3s ease;"></div>
 </body>
 </html>

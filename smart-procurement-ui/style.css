@@ -105,18 +105,26 @@ body {
     flex-direction: column;
     gap: 0.5rem;
     flex: 1;
+    overflow-y: auto;
+}
+
+/* Hide scrollbar for nav-menu to keep UI clean */
+.nav-menu::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
 }
 
 .nav-item {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.875rem 1rem;
-    text-decoration: none;
+    padding: 1rem 1.25rem;
     color: var(--text-muted);
+    text-decoration: none;
     border-radius: 8px;
     transition: all 0.3s ease;
-    font-weight: 500;
+    position: relative;
+    overflow: hidden;
 }
 
 .nav-item:hover {
@@ -138,6 +146,8 @@ body {
     gap: 1rem;
     padding-top: 1.5rem;
     border-top: 1px solid var(--border-glass);
+    flex-shrink: 0;
+    margin-bottom: 10px; /* Give some breathing room at the bottom */
 }
 
 .avatar {
@@ -1178,4 +1188,53 @@ span.badge {
     0% { left: -100%; }
     20% { left: 200%; }
     100% { left: 200%; }
+}
+
+/* --- Markdown Report Tables --- */
+#val-report-content table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 1.5rem 0;
+    background: rgba(10, 15, 30, 0.5);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+#val-report-content th {
+    background: rgba(0, 240, 255, 0.1);
+    color: var(--primary);
+    font-weight: 600;
+    text-align: left;
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+    font-size: 1.1rem;
+    letter-spacing: 0.5px;
+}
+
+#val-report-content td {
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+#val-report-content tr:last-child td {
+    border-bottom: none;
+}
+
+#val-report-content tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+#val-report-content h3 {
+    color: var(--success);
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-size: 1.4rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.5rem;
 }

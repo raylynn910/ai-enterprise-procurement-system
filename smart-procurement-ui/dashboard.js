@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAssessSupplier.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 徵信掃描中...';
             btnAssessSupplier.disabled = true;
             document.getElementById('onboarding-result').style.display = 'none';
+            document.getElementById('onboarding-loading').style.display = 'flex';
 
             try {
                 const supplierId = document.getElementById('ob-id').value || name;
@@ -76,15 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 // --- First-layer Ghost Company Protection (防呆) ---
                 if (result.recommendation && result.recommendation.includes("找不到該公司相關資訊")) {
                     alert(`【警告】查無「${name}」的公司登記或情報資料！\n\n系統防呆機制已啟動：請確認公司名稱是否輸入正確，或該公司未在當地合法設立行號。`);
-                    btnAssessSupplier.innerHTML = '執行 AI 盡職調查';
+                    btnAssessSupplier.innerHTML = '<i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描';
                     btnAssessSupplier.disabled = false;
                     document.getElementById('onboarding-result').style.display = 'none';
+                    document.getElementById('onboarding-loading').style.display = 'none';
                     return; // Abort UI rendering
                 }
                 
                 let risk = result.risk_level;
-                // Risk score from backend is 0-100. We can map it back to ESG roughly or use it for UI.
-                let esgScore = 100 - result.risk_score; // Lower risk score = Higher ESG
+                // Use the exact ESG score from the API (default to 100 - risk if missing)
+                let esgScore = result.esg_score !== undefined ? result.esg_score : (100 - result.risk_score);
                 esgScore = Math.min(100, Math.max(0, esgScore));
                 
                 // Decide status based on API risk level
@@ -131,14 +133,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('ob-res-esgbar').style.width = `${esgScore}%`;
                 
                 // Update news based on recommendation
-                if (risk === "High") {
-                    document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
-                    document.getElementById('ob-icon-news').style.color = "var(--danger)";
-                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                const newsContainer = document.getElementById('ob-log-news');
+                if (result.recommendation && result.recommendation.includes("Gemini")) {
+                    newsContainer.innerHTML = marked.parse(result.recommendation);
+                    newsContainer.parentElement.style.border = "1px solid rgba(139, 92, 246, 0.5)"; // Purple glow
+                    newsContainer.parentElement.style.boxShadow = "0 0 15px rgba(139, 92, 246, 0.2)";
+                    newsContainer.parentElement.style.background = "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(0,0,0,0))";
+                    document.getElementById('ob-icon-news').className = "ph ph-sparkle";
+                    document.getElementById('ob-icon-news').style.color = "#a78bfa";
                 } else {
-                    document.getElementById('ob-icon-news').className = "ph ph-check-circle";
-                    document.getElementById('ob-icon-news').style.color = "var(--success)";
-                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                    newsContainer.innerText = result.recommendation;
+                    newsContainer.parentElement.style.border = "none";
+                    newsContainer.parentElement.style.boxShadow = "none";
+                    newsContainer.parentElement.style.background = "transparent";
+                    if (risk === "High") {
+                        document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
+                        document.getElementById('ob-icon-news').style.color = "var(--danger)";
+                    } else {
+                        document.getElementById('ob-icon-news').className = "ph ph-check-circle";
+                        document.getElementById('ob-icon-news').style.color = "var(--success)";
+                    }
                 }
                 
                 if (result.recommendation && result.recommendation.includes("合規阻斷")) {
@@ -301,6 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("Prediction API Error:", error);
                 alert("徵信掃描失敗，請確認後端 API 已啟動。");
             } finally {
+                document.getElementById('onboarding-loading').style.display = 'none';
                 btnAssessSupplier.innerHTML = '<i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描';
                 btnAssessSupplier.disabled = false;
             }
@@ -406,16 +421,22 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingStatus.style.display = 'inline-block';
         
         try {
-            const res = await fetch('http://localhost:8000/api/reports/weekly');
-            if (!res.ok) throw new Error('API fetching failed');
-            const result = await res.json();
-            
-            // Render Markdown text
-            document.getElementById('val-report-content').innerHTML = marked.parse(result.markdown);
+            // 第 1 步：先拉取圖表數據 (skip_gemini=true)，讓畫面瞬間渲染，不用等 AI 生成
+            const resFast = await fetch('http://localhost:8000/api/reports/weekly?skip_gemini=true');
+            if (!resFast.ok) throw new Error('API fetching failed');
+            const resultFast = await resFast.json();
             
             // Show dashboard, hide placeholder
             placeholder.style.display = 'none';
             dashboard.style.display = 'grid';
+            
+            // 先顯示 Loading 狀態在文字區塊
+            document.getElementById('val-report-content').innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 4rem 2rem; gap: 1rem; color: var(--primary);">
+                    <i class="ph ph-spinner ph-spin" style="font-size: 3rem;"></i>
+                    <h4>Gemini AI 正在撰寫高階財務與風險評估報告...</h4>
+                </div>
+            `;
             
             // Chart 1: Pie Chart (Risk Distribution)
             const pieCtx = document.getElementById('report-pie-chart');
@@ -423,9 +444,9 @@ document.addEventListener('DOMContentLoaded', () => {
             reportPieChartInstance = new Chart(pieCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: result.charts.pie.labels,
+                    labels: resultFast.charts.pie.labels,
                     datasets: [{
-                        data: result.charts.pie.data,
+                        data: resultFast.charts.pie.data,
                         backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
                         borderWidth: 0,
                         hoverOffset: 4
@@ -446,10 +467,10 @@ document.addEventListener('DOMContentLoaded', () => {
             reportBarChartInstance = new Chart(barCtx, {
                 type: 'bar',
                 data: {
-                    labels: result.charts.bar.labels,
+                    labels: resultFast.charts.bar.labels,
                     datasets: [{
                         label: 'Cost Avoidance (USD)',
-                        data: result.charts.bar.data,
+                        data: resultFast.charts.bar.data,
                         backgroundColor: 'rgba(56, 189, 248, 0.6)',
                         borderColor: '#38bdf8',
                         borderWidth: 1,
@@ -462,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     scales: {
                         y: {
                             beginAtZero: true,
+                            suggestedMax: 50000, // <--- 解決數值全為0時，Chart.js 不畫 Y 軸的 Bug
                             ticks: { color: '#94a3b8' },
                             grid: { color: 'rgba(255,255,255,0.05)' }
                         },
@@ -476,9 +498,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            // 第 2 步：背景拉取完整的 Gemini 報表
+            const resFull = await fetch('http://localhost:8000/api/reports/weekly');
+            if (resFull.ok) {
+                const resultFull = await resFull.json();
+                document.getElementById('val-report-content').innerHTML = marked.parse(resultFull.markdown);
+            }
+
         } catch (e) {
             console.error(e);
             alert('報表生成失敗，請確認後端已連線。');
+            document.getElementById('val-report-content').innerHTML = '<p style="color:var(--danger)">報告載入失敗。</p>';
         } finally {
             btn.disabled = false;
             loadingStatus.style.display = 'none';
@@ -776,24 +806,53 @@ async function fetchAndRenderSuppliers() {
         const otdData = data.map(d => 100 - d.raw_metrics.days_late * 5); // Rough normalization for OTD score (100 - late*5)
         const esgData = data.map(d => d.raw_metrics.esg_score);
         
-        // Render or Update Radar Chart
+        // Create Intuitive "RPG-Style" Radar Chart
+        // We swap axes to be Dimensions (Savings, OTD, ESG), and series to be Suppliers.
+        const radarSeries = data.map((d, index) => {
+            // Normalize all scores to a 0-100 scale for balanced radar display
+            const savingsScore = Math.min(100, Math.max(0, d.raw_metrics.savings_pct * 8)); // 12.5% savings = 100 score
+            const otdScore = Math.max(0, 100 - d.raw_metrics.days_late * 5);
+            const esgScore = d.raw_metrics.esg_score;
+            return {
+                name: d.name,
+                data: [savingsScore.toFixed(1), otdScore.toFixed(1), esgScore.toFixed(1)]
+            };
+        });
+
+        const customColors = ['#00f0ff', '#b026ff', '#ffb300']; // Cyberpunk primary, purple, warning
+
         const radarOptions = {
-            series: [{ name: 'Savings Potential', data: savingsData },
-                     { name: 'On-Time Score', data: otdData },
-                     { name: 'ESG Score', data: esgData }],
-            chart: { type: 'radar', height: 350, toolbar: { show: false }, background: 'transparent' },
-            labels: supplierNames,
-            stroke: { width: 2 },
-            fill: { opacity: 0.2 },
-            markers: { size: 4 },
-            xaxis: {
-                labels: {
-                    style: { colors: ['#a0aec0', '#a0aec0', '#a0aec0'], fontSize: '11px', fontFamily: 'Inter' }
+            series: radarSeries,
+            chart: { 
+                type: 'radar', 
+                height: 350, 
+                toolbar: { show: false }, 
+                background: 'transparent',
+                dropShadow: {
+                    enabled: true,
+                    blur: 8,
+                    left: 0,
+                    top: 0,
+                    opacity: 0.5
                 }
             },
-            yaxis: { show: false },
-            theme: { mode: 'dark', palette: 'palette1' },
-            legend: { position: 'bottom', labels: { colors: '#fff' } }
+            colors: customColors,
+            labels: ['Cost Savings Score', 'On-Time Delivery', 'ESG Sustainability'],
+            stroke: { width: 3, curve: 'smooth' },
+            fill: { opacity: 0.25 },
+            markers: { size: 5, hover: { size: 8 } },
+            xaxis: {
+                labels: {
+                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '12px', fontFamily: 'Inter', fontWeight: 600 }
+                }
+            },
+            yaxis: { show: false, min: 0, max: 100 },
+            theme: { mode: 'dark' },
+            legend: { 
+                position: 'bottom', 
+                labels: { colors: '#fff' },
+                markers: { radius: 12 }
+            }
         };
 
         if (recommendationRadarChart) {
@@ -1091,4 +1150,171 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 2000);
         }
     });
+});
+
+
+// Global Search Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('global-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                const query = searchInput.value.trim();
+                if (!query) return;
+                
+                try {
+                    const res = await fetch(`http://localhost:8000/api/supplier/search?q=${encodeURIComponent(query)}`);
+                    const data = await res.json();
+                    
+                    if (!data.found) {
+                        alert(data.message || 'No supplier found.');
+                        return;
+                    }
+                    
+                    // Switch to view-supplier by triggering the nav item click
+                    const supplierNav = document.querySelector('.nav-item[data-target="view-supplier"]');
+                    if (supplierNav) {
+                        supplierNav.click();
+                    }
+                    // Update Scorecard Data
+                    document.getElementById('sc-supplier-name').innerText = data.supplier.name;
+                    
+                    // Risk Badge
+                    const rBadge = document.getElementById('sc-supplier-risk');
+                    rBadge.innerText = `Risk: ${data.supplier.risk_level}`;
+                    if (data.supplier.risk_level === 'Low') {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
+                    } else if (data.supplier.risk_level === 'High') {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);';
+                    } else {
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning);';
+                    }
+                    
+                    // KPI Cards
+                    document.getElementById('sc-total-spend').innerText = '$' + Number(data.metrics.total_spend).toLocaleString();
+                    document.getElementById('sc-total-pos').innerText = data.metrics.total_pos;
+                    
+                    const avgSav = document.getElementById('sc-avg-savings');
+                    avgSav.innerText = data.metrics.avg_savings + '%';
+                    avgSav.className = data.metrics.avg_savings > 0 ? 'kpi-value success-text' : 'kpi-value danger-text';
+                    
+                    const avgLate = document.getElementById('sc-avg-late');
+                    avgLate.innerText = data.metrics.avg_days_late + ' 天';
+                    avgLate.className = data.metrics.avg_days_late > 0 ? 'kpi-value warning-text' : 'kpi-value success-text';
+                    
+                    const esg = document.getElementById('sc-esg-score');
+                    esg.innerText = data.supplier.esg_score;
+                    esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
+                    
+                    // Recent POs
+                    const tbody = document.getElementById('sc-po-tbody');
+                    tbody.innerHTML = '';
+                    
+                    if (data.recent_pos && data.recent_pos.length > 0) {
+                        data.recent_pos.forEach(po => {
+                            let mavClass = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'danger-text' : 'success-text';
+                            let mavText = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'Yes' : 'No';
+                            
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${po.PO_ID}</td>
+                                <td>${po.PO_Date}</td>
+                                <td>${po.Category}</td>
+                                <td>$${Number(po.Spend).toLocaleString()}</td>
+                                <td class="${mavClass}">${mavText}</td>
+                                <td>${po.PO_Status}</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
+                    }
+                    
+                } catch (e) {
+                    console.error('Search failed:', e);
+                    alert('Search error occurred. Please try again later.');
+                }
+            }
+        });
+    }
+});
+
+
+// Add Supplier Drawer Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const drawer = document.getElementById('add-supplier-drawer');
+    const overlay = document.getElementById('drawer-overlay');
+    const btnOpen = document.getElementById('btn-open-add-supplier');
+    const btnClose = document.getElementById('btn-close-drawer');
+    const btnCancel = document.getElementById('btn-cancel-drawer');
+    const form = document.getElementById('add-supplier-form');
+    const btnSubmit = document.getElementById('btn-submit-add');
+
+    const openDrawer = () => {
+        if (drawer && overlay) {
+            overlay.style.display = 'block';
+            // Trigger reflow for transition
+            void overlay.offsetWidth;
+            overlay.style.opacity = '1';
+            drawer.style.right = '0';
+        }
+    };
+
+    const closeDrawer = () => {
+        if (drawer && overlay) {
+            drawer.style.right = '-500px';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+            }, 300); // matches CSS transition duration
+            if (form) form.reset();
+        }
+    };
+
+    if (btnOpen) btnOpen.addEventListener('click', openDrawer);
+    if (btnClose) btnClose.addEventListener('click', closeDrawer);
+    if (btnCancel) btnCancel.addEventListener('click', closeDrawer);
+    if (overlay) overlay.addEventListener('click', closeDrawer);
+
+    if (form) {
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (btnSubmit) {
+                btnSubmit.innerHTML = 'Processing...';
+                btnSubmit.disabled = true;
+            }
+
+            const payload = {
+                name: document.getElementById('as-name').value,
+                country: document.getElementById('as-country').value,
+                category: document.getElementById('as-category').value,
+                risk_level: document.getElementById('as-risk').value,
+                esg_score: parseFloat(document.getElementById('as-esg').value)
+            };
+
+            try {
+                const res = await fetch('http://localhost:8000/api/supplier/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    alert('Vendor onboarded successfully! AI initial evaluation complete. You can now search for this vendor.');
+                    closeDrawer();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('API Request Failed');
+            } finally {
+                if (btnSubmit) {
+                    btnSubmit.innerHTML = '<i class="ph ph-sparkle"></i> 送出並由 AI 評估';
+                    btnSubmit.disabled = false;
+                }
+            }
+        });
+    }
 });

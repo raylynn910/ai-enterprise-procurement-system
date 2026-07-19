@@ -11,9 +11,14 @@ ESG_AUTHORITY_DB = {
     "BMW": {"esg_score": 85.0, "rating": "MSCI: A", "compliance": 90.0, "delivery_score": 90.0},
     "TSMC": {"esg_score": 95.0, "rating": "MSCI: AAA", "compliance": 98.0, "delivery_score": 98.0},
     "TAIWAN SEMICONDUCTOR": {"esg_score": 95.0, "rating": "MSCI: AAA", "compliance": 98.0, "delivery_score": 98.0},
+    "台積電": {"esg_score": 95.0, "rating": "MSCI: AAA", "compliance": 98.0, "delivery_score": 98.0},
     "NVIDIA": {"esg_score": 85.0, "rating": "MSCI: A", "compliance": 92.0, "delivery_score": 90.0},
     "AMAZON": {"esg_score": 75.0, "rating": "MSCI: BBB", "compliance": 85.0, "delivery_score": 95.0},
     "TESLA": {"esg_score": 70.0, "rating": "MSCI: BBB", "compliance": 80.0, "delivery_score": 80.0},
+    "HON HAI": {"esg_score": 82.0, "rating": "MSCI: A", "compliance": 90.0, "delivery_score": 92.0},
+    "鴻海": {"esg_score": 82.0, "rating": "MSCI: A", "compliance": 90.0, "delivery_score": 92.0},
+    "MEDIATEK": {"esg_score": 88.0, "rating": "MSCI: AA", "compliance": 95.0, "delivery_score": 90.0},
+    "聯發科": {"esg_score": 88.0, "rating": "MSCI: AA", "compliance": 95.0, "delivery_score": 90.0},
 }
 
 def get_authoritative_esg(supplier_name: str) -> dict:

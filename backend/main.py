@@ -351,50 +351,61 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         # --- Calculate 5 Radar Chart Dimensions ---
         rep_score = 50.0  # Base reputation score
         
-        # Adjust reputation based on OSINT volume
-        if len(osint_sources_list) >= 3:
-            rep_score += 20.0
-        elif len(osint_sources_list) >= 1:
-            rep_score += 10.0
-            
-        # Adjust reputation based on Sentiment
-        if is_guardrail_blocked:
+        # Identify if it is a ghost company
+        is_ghost_company = (osint_summary_msg == "找不到該公司相關資訊")
+        
+        if is_ghost_company:
+            # Ghost companies should have minimal scores across all dimensions
             rep_score = 10.0
-        elif "正面" in osint_summary_msg or "優良" in osint_summary_msg or "獲獎" in osint_summary_msg:
-            rep_score += 15.0
-            
-        rep_score = min(100.0, max(0.0, rep_score))
-        
-        f_score = max(10.0, 100.0 - risk_score)
-        
-        # Delivery Score based on days late
-        d_late = float(days_late) if days_late > 0 else 0.0
-        d_score = max(10.0, 100.0 - (d_late * 3.5)) # 0 days -> 100, 20 days -> 30
-        
-        if 'auth_esg' in locals() and auth_esg:
-            esg_score = auth_esg['esg_score']
-            rep_score = max(rep_score, 85.0)  # Authoritative source implies high reputation
-            d_score = auth_esg['delivery_score']
-            
-        # --- Real Financial OSINT API ---
-        fin_data = finance_gatherer.get_financial_features(request.supplier_id)
-        if fin_data and fin_data.get('quoteType') == 'EQUITY':
-            market_cap = fin_data.get('marketCap', 0)
-            if market_cap > 100_000_000_000: # 100B+
-                f_score = 95.0
-                p_score = 90.0
-            elif market_cap > 10_000_000_000: # 10B+
-                f_score = 88.0
-                p_score = 82.0
-            elif market_cap > 1_000_000_000: # 1B+
-                f_score = 80.0
-                p_score = 75.0
-            else:
-                f_score = 75.0
-                p_score = 70.0
+            f_score = 10.0
+            d_score = 10.0
+            esg_score = 10.0
+            p_score = 10.0
         else:
-            # Fallback to Risk Proxy if API timeouts or company is private
-            p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
+            # Adjust reputation based on OSINT volume
+            if len(osint_sources_list) >= 3:
+                rep_score += 20.0
+            elif len(osint_sources_list) >= 1:
+                rep_score += 10.0
+                
+            # Adjust reputation based on Sentiment
+            if is_guardrail_blocked:
+                rep_score = 10.0
+            elif "正面" in osint_summary_msg or "優良" in osint_summary_msg or "獲獎" in osint_summary_msg:
+                rep_score += 15.0
+                
+            rep_score = min(100.0, max(0.0, rep_score))
+            
+            f_score = max(10.0, 100.0 - risk_score)
+            
+            # Delivery Score based on days late
+            d_late = float(days_late) if days_late > 0 else 0.0
+            d_score = max(10.0, 100.0 - (d_late * 3.5)) # 0 days -> 100, 20 days -> 30
+            
+            if 'auth_esg' in locals() and auth_esg:
+                esg_score = auth_esg['esg_score']
+                rep_score = max(rep_score, 85.0)  # Authoritative source implies high reputation
+                d_score = auth_esg['delivery_score']
+                
+            # --- Real Financial OSINT API ---
+            fin_data = finance_gatherer.get_financial_features(request.supplier_id)
+            if fin_data and fin_data.get('quoteType') == 'EQUITY':
+                market_cap = fin_data.get('marketCap', 0)
+                if market_cap > 100_000_000_000: # 100B+
+                    f_score = 95.0
+                    p_score = 90.0
+                elif market_cap > 10_000_000_000: # 10B+
+                    f_score = 88.0
+                    p_score = 82.0
+                elif market_cap > 1_000_000_000: # 1B+
+                    f_score = 80.0
+                    p_score = 75.0
+                else:
+                    f_score = 75.0
+                    p_score = 70.0
+            else:
+                # Fallback to Risk Proxy if API timeouts or company is private
+                p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
         
         return SupplierRiskResponse(
             supplier_id=request.supplier_id,
@@ -433,7 +444,7 @@ def _mock_supplier_risk(request: SupplierRiskRequest):
         risk_level=risk_level,
         recommendation=recommendation,
         is_mock=True,
-        compliance_score=85.0 if risk_level != "High" else 20.0,
+        reputation_score=85.0 if risk_level != "High" else 20.0,
         financial_score=90.0 if risk_level == "Low" else 60.0,
         delivery_score=95.0 if risk_level == "Low" else 40.0,
         esg_score=100.0 - risk_score,
@@ -485,7 +496,7 @@ def get_monthly_trends():
         data.append(r)
         
     # 按年份與月份排序
-    data = sorted(data, key=lambda x: (int(x["PO_Year"]), x["month_num"]))
+    data = sorted(data, key=lambda x: (int(x["PO_Year"]) if x.get("PO_Year") and str(x["PO_Year"]).isdigit() else 0, x.get("month_num", 99)))
     
     conn.close()
     
@@ -675,7 +686,7 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
     return ret_val
 
 @app.get("/api/reports/weekly")
-def get_weekly_report():
+def get_weekly_report(skip_gemini: bool = False):
     import datetime
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -725,7 +736,24 @@ def get_weekly_report():
     
     total_avoidance = sum(avoidance) if avoidance else (blocked_preds * 12500)
     
-    markdown = f"""
+    gemini_markdown = None
+    if not skip_gemini:
+        try:
+            from rag_engine import generate_weekly_report
+            report_data = {
+                'date_range': f"{date_str_start} 至 {date_str_end}",
+                'blocked_preds': blocked_preds,
+                'total_preds': total_preds,
+                'total_avoidance': total_avoidance
+            }
+            gemini_markdown = generate_weekly_report(report_data)
+        except Exception as e:
+            print("Failed to import or use rag_engine:", e)
+
+    if gemini_markdown:
+        markdown = gemini_markdown
+    else:
+        markdown = f"""
 ### 📊 報表區間：`{date_str_start}` 至 `{date_str_end}`
 
 ### 1. 💰 財務衝擊與 ROI 摘要 
@@ -1037,3 +1065,141 @@ def assess_company_financial(name: str = Query(..., description="公司名稱或
     result["caveat"] = ("Z-score 為公式型預警指標, 非本專案 ML 模型輸出; "
                         "ML 模型 (UCI 正規化比率空間) 請用 /api/predict/financial-risk。")
     return result
+
+@app.get("/api/supplier/search")
+def search_supplier(q: str):
+    """
+    Search for a supplier by name and return a 360 scorecard of their historical data.
+    """
+    if not q or len(q.strip()) == 0:
+        return {"error": "Query cannot be empty"}
+        
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # 1. Search for the supplier
+        search_query = f"%{q.strip().lower()}%"
+        cursor.execute("""
+            SELECT Supplier_ID, Supplier_Name, Supplier_Risk, Supplier_Tier, Supplier_ESG_Score, Preferred_Supplier
+            FROM procurement_data 
+            WHERE LOWER(Supplier_Name) LIKE ? OR LOWER(Supplier_ID) LIKE ?
+            LIMIT 1
+        """, (search_query, search_query))
+        
+        supplier_row = cursor.fetchone()
+        
+        if not supplier_row:
+            conn.close()
+            return {"found": False, "message": "No supplier found matching the query."}
+            
+        supplier_id = supplier_row['Supplier_ID']
+        supplier_name = supplier_row['Supplier_Name']
+        risk_level = supplier_row['Supplier_Risk']
+        tier = supplier_row['Supplier_Tier']
+        esg_score = supplier_row['Supplier_ESG_Score']
+        preferred = supplier_row['Preferred_Supplier']
+        
+        # 2. Get Aggregated Metrics
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_pos,
+                SUM(CAST(Quantity AS FLOAT) * 120) as total_spend,
+                AVG(CAST(Savings_Pct AS FLOAT)) as avg_savings,
+                AVG(CAST(Days_Late AS FLOAT)) as avg_days_late,
+                SUM(CASE WHEN Maverick_Spend COLLATE NOCASE IN ('yes', 'true', '1') THEN 1 ELSE 0 END) as maverick_count
+            FROM procurement_data
+            WHERE Supplier_ID = ?
+        """, (supplier_id,))
+        
+        metrics_row = cursor.fetchone()
+        
+        # 3. Get Recent POs
+        cursor.execute("""
+            SELECT PO_Number as PO_ID, PO_Date, (Quantity * 120) as Spend, Category, Supplier_Risk, Maverick_Spend, PO_Status
+            FROM procurement_data
+            WHERE Supplier_ID = ?
+            ORDER BY PO_Date DESC
+            LIMIT 5
+        """, (supplier_id,))
+        
+        recent_pos = [dict(r) for r in cursor.fetchall()]
+        
+        conn.close()
+        
+        return {
+            "found": True,
+            "supplier": {
+                "id": supplier_id,
+                "name": supplier_name,
+                "risk_level": risk_level,
+                "tier": tier,
+                "esg_score": esg_score,
+                "preferred": preferred
+            },
+            "metrics": {
+                "total_pos": metrics_row['total_pos'] if metrics_row else 0,
+                "total_spend": metrics_row['total_spend'] if metrics_row and metrics_row['total_spend'] else 0,
+                "avg_savings": round(metrics_row['avg_savings'], 2) if metrics_row and metrics_row['avg_savings'] else 0,
+                "avg_days_late": round(metrics_row['avg_days_late'], 1) if metrics_row and metrics_row['avg_days_late'] else 0,
+                "maverick_count": metrics_row['maverick_count'] if metrics_row and metrics_row['maverick_count'] else 0
+            },
+            "recent_pos": recent_pos
+        }
+    except Exception as e:
+        print(f"Search API Error: {e}")
+        return {"error": str(e)}
+
+import random
+
+class SupplierAddRequest(BaseModel):
+    name: str
+    country: str
+    category: str
+    risk_level: str
+    esg_score: float
+
+@app.post("/api/supplier/add")
+def add_supplier(request: SupplierAddRequest):
+    conn = get_db_connection()
+    try:
+        # Create a dummy PO to register the supplier in the system
+        supplier_id = f"V{random.randint(10000, 99999)}"
+        
+        # Determine some initial metrics based on risk
+        days_late = 0
+        if request.risk_level == "High":
+            days_late = 10
+        elif request.risk_level == "Medium":
+            days_late = 4
+            
+        savings_pct = 5.0 # baseline
+        
+        conn.execute('''
+            INSERT INTO procurement_data (
+                PO_Number, PO_Date, PO_Year, PO_Month, Supplier_ID, Supplier_Name, Supplier_Country,
+                Supplier_Risk, Category, Supplier_ESG_Score, Days_Late, Savings_Pct,
+                Quantity, Item_Description
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            f"PO-{random.randint(100000, 999999)}",
+            "2024-05-01",
+            "2024",
+            "May",
+            supplier_id,
+            request.name,
+            request.country,
+            request.risk_level,
+            request.category,
+            request.esg_score,
+            days_late,
+            savings_pct,
+            1,
+            "Initial Onboarding"
+        ))
+        conn.commit()
+        return {"success": True, "message": "Supplier onboarded successfully", "supplier_id": supplier_id}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+    finally:
+        conn.close()
