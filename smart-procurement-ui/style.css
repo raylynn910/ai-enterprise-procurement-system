@@ -1189,3 +1189,52 @@ span.badge {
     20% { left: 200%; }
     100% { left: 200%; }
 }
+
+/* --- Markdown Report Tables --- */
+#val-report-content table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    margin: 1.5rem 0;
+    background: rgba(10, 15, 30, 0.5);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+#val-report-content th {
+    background: rgba(0, 240, 255, 0.1);
+    color: var(--primary);
+    font-weight: 600;
+    text-align: left;
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+    font-size: 1.1rem;
+    letter-spacing: 0.5px;
+}
+
+#val-report-content td {
+    padding: 1rem 1.2rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-main);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+#val-report-content tr:last-child td {
+    border-bottom: none;
+}
+
+#val-report-content tr:hover td {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+#val-report-content h3 {
+    color: var(--success);
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    font-size: 1.4rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding-bottom: 0.5rem;
+}

@@ -53,6 +53,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btnAssessSupplier.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 徵信掃描中...';
             btnAssessSupplier.disabled = true;
             document.getElementById('onboarding-result').style.display = 'none';
+            document.getElementById('onboarding-loading').style.display = 'flex';
 
             try {
                 const supplierId = document.getElementById('ob-id').value || name;
@@ -76,15 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 // --- First-layer Ghost Company Protection (防呆) ---
                 if (result.recommendation && result.recommendation.includes("找不到該公司相關資訊")) {
                     alert(`【警告】查無「${name}」的公司登記或情報資料！\n\n系統防呆機制已啟動：請確認公司名稱是否輸入正確，或該公司未在當地合法設立行號。`);
-                    btnAssessSupplier.innerHTML = '執行 AI 盡職調查';
+                    btnAssessSupplier.innerHTML = '<i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描';
                     btnAssessSupplier.disabled = false;
                     document.getElementById('onboarding-result').style.display = 'none';
+                    document.getElementById('onboarding-loading').style.display = 'none';
                     return; // Abort UI rendering
                 }
                 
                 let risk = result.risk_level;
-                // Risk score from backend is 0-100. We can map it back to ESG roughly or use it for UI.
-                let esgScore = 100 - result.risk_score; // Lower risk score = Higher ESG
+                // Use the exact ESG score from the API (default to 100 - risk if missing)
+                let esgScore = result.esg_score !== undefined ? result.esg_score : (100 - result.risk_score);
                 esgScore = Math.min(100, Math.max(0, esgScore));
                 
                 // Decide status based on API risk level
@@ -131,14 +133,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('ob-res-esgbar').style.width = `${esgScore}%`;
                 
                 // Update news based on recommendation
-                if (risk === "High") {
-                    document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
-                    document.getElementById('ob-icon-news').style.color = "var(--danger)";
-                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                const newsContainer = document.getElementById('ob-log-news');
+                if (result.recommendation && result.recommendation.includes("Gemini")) {
+                    newsContainer.innerHTML = marked.parse(result.recommendation);
+                    newsContainer.parentElement.style.border = "1px solid rgba(139, 92, 246, 0.5)"; // Purple glow
+                    newsContainer.parentElement.style.boxShadow = "0 0 15px rgba(139, 92, 246, 0.2)";
+                    newsContainer.parentElement.style.background = "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(0,0,0,0))";
+                    document.getElementById('ob-icon-news').className = "ph ph-sparkle";
+                    document.getElementById('ob-icon-news').style.color = "#a78bfa";
                 } else {
-                    document.getElementById('ob-icon-news').className = "ph ph-check-circle";
-                    document.getElementById('ob-icon-news').style.color = "var(--success)";
-                    document.getElementById('ob-log-news').innerText = result.recommendation;
+                    newsContainer.innerText = result.recommendation;
+                    newsContainer.parentElement.style.border = "none";
+                    newsContainer.parentElement.style.boxShadow = "none";
+                    newsContainer.parentElement.style.background = "transparent";
+                    if (risk === "High") {
+                        document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
+                        document.getElementById('ob-icon-news').style.color = "var(--danger)";
+                    } else {
+                        document.getElementById('ob-icon-news').className = "ph ph-check-circle";
+                        document.getElementById('ob-icon-news').style.color = "var(--success)";
+                    }
                 }
                 
                 if (result.recommendation && result.recommendation.includes("合規阻斷")) {
@@ -301,6 +315,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error("Prediction API Error:", error);
                 alert("徵信掃描失敗，請確認後端 API 已啟動。");
             } finally {
+                document.getElementById('onboarding-loading').style.display = 'none';
                 btnAssessSupplier.innerHTML = '<i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描';
                 btnAssessSupplier.disabled = false;
             }
@@ -406,16 +421,22 @@ document.addEventListener('DOMContentLoaded', () => {
         loadingStatus.style.display = 'inline-block';
         
         try {
-            const res = await fetch('http://localhost:8000/api/reports/weekly');
-            if (!res.ok) throw new Error('API fetching failed');
-            const result = await res.json();
-            
-            // Render Markdown text
-            document.getElementById('val-report-content').innerHTML = marked.parse(result.markdown);
+            // 第 1 步：先拉取圖表數據 (skip_gemini=true)，讓畫面瞬間渲染，不用等 AI 生成
+            const resFast = await fetch('http://localhost:8000/api/reports/weekly?skip_gemini=true');
+            if (!resFast.ok) throw new Error('API fetching failed');
+            const resultFast = await resFast.json();
             
             // Show dashboard, hide placeholder
             placeholder.style.display = 'none';
             dashboard.style.display = 'grid';
+            
+            // 先顯示 Loading 狀態在文字區塊
+            document.getElementById('val-report-content').innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 4rem 2rem; gap: 1rem; color: var(--primary);">
+                    <i class="ph ph-spinner ph-spin" style="font-size: 3rem;"></i>
+                    <h4>Gemini AI 正在撰寫高階財務與風險評估報告...</h4>
+                </div>
+            `;
             
             // Chart 1: Pie Chart (Risk Distribution)
             const pieCtx = document.getElementById('report-pie-chart');
@@ -423,9 +444,9 @@ document.addEventListener('DOMContentLoaded', () => {
             reportPieChartInstance = new Chart(pieCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: result.charts.pie.labels,
+                    labels: resultFast.charts.pie.labels,
                     datasets: [{
-                        data: result.charts.pie.data,
+                        data: resultFast.charts.pie.data,
                         backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
                         borderWidth: 0,
                         hoverOffset: 4
@@ -446,10 +467,10 @@ document.addEventListener('DOMContentLoaded', () => {
             reportBarChartInstance = new Chart(barCtx, {
                 type: 'bar',
                 data: {
-                    labels: result.charts.bar.labels,
+                    labels: resultFast.charts.bar.labels,
                     datasets: [{
                         label: 'Cost Avoidance (USD)',
-                        data: result.charts.bar.data,
+                        data: resultFast.charts.bar.data,
                         backgroundColor: 'rgba(56, 189, 248, 0.6)',
                         borderColor: '#38bdf8',
                         borderWidth: 1,
@@ -462,6 +483,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     scales: {
                         y: {
                             beginAtZero: true,
+                            suggestedMax: 50000, // <--- 解決數值全為0時，Chart.js 不畫 Y 軸的 Bug
                             ticks: { color: '#94a3b8' },
                             grid: { color: 'rgba(255,255,255,0.05)' }
                         },
@@ -476,9 +498,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
 
+            // 第 2 步：背景拉取完整的 Gemini 報表
+            const resFull = await fetch('http://localhost:8000/api/reports/weekly');
+            if (resFull.ok) {
+                const resultFull = await resFull.json();
+                document.getElementById('val-report-content').innerHTML = marked.parse(resultFull.markdown);
+            }
+
         } catch (e) {
             console.error(e);
             alert('報表生成失敗，請確認後端已連線。');
+            document.getElementById('val-report-content').innerHTML = '<p style="color:var(--danger)">報告載入失敗。</p>';
         } finally {
             btn.disabled = false;
             loadingStatus.style.display = 'none';

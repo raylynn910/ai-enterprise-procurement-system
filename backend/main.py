@@ -331,50 +331,61 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         # --- Calculate 5 Radar Chart Dimensions ---
         rep_score = 50.0  # Base reputation score
         
-        # Adjust reputation based on OSINT volume
-        if len(osint_sources_list) >= 3:
-            rep_score += 20.0
-        elif len(osint_sources_list) >= 1:
-            rep_score += 10.0
-            
-        # Adjust reputation based on Sentiment
-        if is_guardrail_blocked:
+        # Identify if it is a ghost company
+        is_ghost_company = (osint_summary_msg == "找不到該公司相關資訊")
+        
+        if is_ghost_company:
+            # Ghost companies should have minimal scores across all dimensions
             rep_score = 10.0
-        elif "正面" in osint_summary_msg or "優良" in osint_summary_msg or "獲獎" in osint_summary_msg:
-            rep_score += 15.0
-            
-        rep_score = min(100.0, max(0.0, rep_score))
-        
-        f_score = max(10.0, 100.0 - risk_score)
-        
-        # Delivery Score based on days late
-        d_late = float(days_late) if days_late > 0 else 0.0
-        d_score = max(10.0, 100.0 - (d_late * 3.5)) # 0 days -> 100, 20 days -> 30
-        
-        if 'auth_esg' in locals() and auth_esg:
-            esg_score = auth_esg['esg_score']
-            rep_score = max(rep_score, 85.0)  # Authoritative source implies high reputation
-            d_score = auth_esg['delivery_score']
-            
-        # --- Real Financial OSINT API ---
-        fin_data = finance_gatherer.get_financial_features(request.supplier_id)
-        if fin_data and fin_data.get('quoteType') == 'EQUITY':
-            market_cap = fin_data.get('marketCap', 0)
-            if market_cap > 100_000_000_000: # 100B+
-                f_score = 95.0
-                p_score = 90.0
-            elif market_cap > 10_000_000_000: # 10B+
-                f_score = 88.0
-                p_score = 82.0
-            elif market_cap > 1_000_000_000: # 1B+
-                f_score = 80.0
-                p_score = 75.0
-            else:
-                f_score = 75.0
-                p_score = 70.0
+            f_score = 10.0
+            d_score = 10.0
+            esg_score = 10.0
+            p_score = 10.0
         else:
-            # Fallback to Risk Proxy if API timeouts or company is private
-            p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
+            # Adjust reputation based on OSINT volume
+            if len(osint_sources_list) >= 3:
+                rep_score += 20.0
+            elif len(osint_sources_list) >= 1:
+                rep_score += 10.0
+                
+            # Adjust reputation based on Sentiment
+            if is_guardrail_blocked:
+                rep_score = 10.0
+            elif "正面" in osint_summary_msg or "優良" in osint_summary_msg or "獲獎" in osint_summary_msg:
+                rep_score += 15.0
+                
+            rep_score = min(100.0, max(0.0, rep_score))
+            
+            f_score = max(10.0, 100.0 - risk_score)
+            
+            # Delivery Score based on days late
+            d_late = float(days_late) if days_late > 0 else 0.0
+            d_score = max(10.0, 100.0 - (d_late * 3.5)) # 0 days -> 100, 20 days -> 30
+            
+            if 'auth_esg' in locals() and auth_esg:
+                esg_score = auth_esg['esg_score']
+                rep_score = max(rep_score, 85.0)  # Authoritative source implies high reputation
+                d_score = auth_esg['delivery_score']
+                
+            # --- Real Financial OSINT API ---
+            fin_data = finance_gatherer.get_financial_features(request.supplier_id)
+            if fin_data and fin_data.get('quoteType') == 'EQUITY':
+                market_cap = fin_data.get('marketCap', 0)
+                if market_cap > 100_000_000_000: # 100B+
+                    f_score = 95.0
+                    p_score = 90.0
+                elif market_cap > 10_000_000_000: # 10B+
+                    f_score = 88.0
+                    p_score = 82.0
+                elif market_cap > 1_000_000_000: # 1B+
+                    f_score = 80.0
+                    p_score = 75.0
+                else:
+                    f_score = 75.0
+                    p_score = 70.0
+            else:
+                # Fallback to Risk Proxy if API timeouts or company is private
+                p_score = 65.0 + (len(request.supplier_id) * 3 % 25)
         
         return SupplierRiskResponse(
             supplier_id=request.supplier_id,
@@ -413,7 +424,7 @@ def _mock_supplier_risk(request: SupplierRiskRequest):
         risk_level=risk_level,
         recommendation=recommendation,
         is_mock=True,
-        compliance_score=85.0 if risk_level != "High" else 20.0,
+        reputation_score=85.0 if risk_level != "High" else 20.0,
         financial_score=90.0 if risk_level == "Low" else 60.0,
         delivery_score=95.0 if risk_level == "Low" else 40.0,
         esg_score=100.0 - risk_score,
@@ -655,7 +666,7 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
     return ret_val
 
 @app.get("/api/reports/weekly")
-def get_weekly_report():
+def get_weekly_report(skip_gemini: bool = False):
     import datetime
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -705,7 +716,24 @@ def get_weekly_report():
     
     total_avoidance = sum(avoidance) if avoidance else (blocked_preds * 12500)
     
-    markdown = f"""
+    gemini_markdown = None
+    if not skip_gemini:
+        try:
+            from rag_engine import generate_weekly_report
+            report_data = {
+                'date_range': f"{date_str_start} 至 {date_str_end}",
+                'blocked_preds': blocked_preds,
+                'total_preds': total_preds,
+                'total_avoidance': total_avoidance
+            }
+            gemini_markdown = generate_weekly_report(report_data)
+        except Exception as e:
+            print("Failed to import or use rag_engine:", e)
+
+    if gemini_markdown:
+        markdown = gemini_markdown
+    else:
+        markdown = f"""
 ### 📊 報表區間：`{date_str_start}` 至 `{date_str_end}`
 
 ### 1. 💰 財務衝擊與 ROI 摘要 

@@ -11,3 +11,5 @@ yfinance
 wikipedia
 duckduckgo-search
 tavily-python
+python-dotenv
+google-generativeai

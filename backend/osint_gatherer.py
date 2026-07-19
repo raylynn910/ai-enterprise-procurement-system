@@ -1,10 +1,83 @@
 import wikipedia
 from duckduckgo_search import DDGS
 import re
+import sqlite3
+import json
+import time
+import os
+
+# --- OSINT Result Cache ---
+# In-memory cache for current process session
+_osint_memory_cache = {}
+OSINT_CACHE_DB = os.path.join(os.path.dirname(__file__), 'procurement.db')
+OSINT_CACHE_EXPIRY = 24 * 60 * 60  # 24 hours
+
+def _init_osint_cache():
+    """Initialize the OSINT cache table in SQLite."""
+    try:
+        conn = sqlite3.connect(OSINT_CACHE_DB)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS osint_cache (
+                supplier_key TEXT PRIMARY KEY,
+                result_json TEXT,
+                timestamp REAL
+            )
+        ''')
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+_init_osint_cache()
+
+def _get_cached_osint(supplier_key: str) -> dict:
+    """Try to get cached OSINT result from memory or SQLite."""
+    # 1. Check in-memory cache first (fastest)
+    if supplier_key in _osint_memory_cache:
+        entry = _osint_memory_cache[supplier_key]
+        if time.time() - entry['timestamp'] < OSINT_CACHE_EXPIRY:
+            return entry['data']
+    
+    # 2. Check SQLite persistent cache
+    try:
+        conn = sqlite3.connect(OSINT_CACHE_DB)
+        cursor = conn.cursor()
+        cursor.execute("SELECT result_json, timestamp FROM osint_cache WHERE supplier_key = ?", (supplier_key,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            result_json, ts = row
+            if time.time() - ts < OSINT_CACHE_EXPIRY:
+                data = json.loads(result_json)
+                # Also populate memory cache
+                _osint_memory_cache[supplier_key] = {'data': data, 'timestamp': ts}
+                return data
+    except Exception:
+        pass
+    
+    return None
+
+def _save_osint_cache(supplier_key: str, data: dict):
+    """Save OSINT result to both memory and SQLite cache."""
+    now = time.time()
+    _osint_memory_cache[supplier_key] = {'data': data, 'timestamp': now}
+    try:
+        conn = sqlite3.connect(OSINT_CACHE_DB)
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO osint_cache (supplier_key, result_json, timestamp)
+            VALUES (?, ?, ?)
+        ''', (supplier_key, json.dumps(data, ensure_ascii=False), now))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dict:
     """
     Search OSINT sources for supplier information and derive estimated features.
+    Results are cached for 24 hours to ensure score consistency.
     Returns:
         dict: {
             "esg_score": float,
@@ -13,6 +86,14 @@ def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dic
             "osint_summary": str
         }
     """
+    # --- Cache Check: return cached result if available ---
+    cache_key = (supplier_name or '').strip().lower()
+    cached = _get_cached_osint(cache_key)
+    if cached is not None:
+        print(f"[OSINT Cache HIT] {supplier_name}")
+        return cached
+    
+    print(f"[OSINT Cache MISS] {supplier_name} - fetching fresh data...")
     summary_text = ""
     found_info = False
 
@@ -65,52 +146,82 @@ def gather_supplier_intelligence(supplier_name: str, country: str = None) -> dic
         print("Tavily Search Error:", e)
 
     if not found_info or not summary_text.strip():
-        return {
+        ghost_result = {
             "esg_score": 30.0, # High risk for ghost companies
             "days_late": 15,
             "po_status": "Pending",
             "osint_summary": "找不到該公司相關資訊",
             "osint_sources": []
         }
+        _save_osint_cache(cache_key, ghost_result)
+        return ghost_result
 
     # 3. Simple Sentiment / Keyword Analysis
     text_lower = summary_text.lower()
     
-    negative_keywords = ["lawsuit", "scandal", "fraud", "penalty", "fine", "violation", "bankruptcy", "delay", "court", "investigation", "sued", "breach", "controversy", 
-                         "訴訟", "裁罰", "違反", "詐欺", "醜聞", "食安", "下架", "毒", "延遲", "違法", "黑心", "罰單", "風波", "調查", "停工"]
+    fatal_keywords = ["致癌", "停工", "勒令", "食安", "詐欺", "醜聞", "毒", "黑心", "scandal", "fraud", "violation"]
+    negative_keywords = ["lawsuit", "penalty", "fine", "bankruptcy", "delay", "court", "investigation", "sued", "breach", "controversy", 
+                         "訴訟", "裁罰", "違反", "下架", "延遲", "違法", "罰單", "風波", "調查", "罰"]
     positive_keywords = ["award", "sustainability", "green", "leader", "innovation", "reliable", "partner", "top", "excellence", "growth", "global",
                          "獲獎", "永續", "領先", "優良", "認證", "ESG", "綠能", "創新", "卓越"]
     
-    neg_count = sum(1 for word in negative_keywords if word in text_lower)
+    fatal_hits = [word for word in fatal_keywords if word in text_lower]
+    neg_hits = [word for word in negative_keywords if word in text_lower]
     pos_count = sum(1 for word in positive_keywords if word in text_lower)
     
+    neg_count = len(fatal_hits) * 5 + len(neg_hits)
+    
     # Calculate ESG score (base 70 to be more forgiving)
-    esg_score = 70.0 + (pos_count * 10) - (neg_count * 5)
+    esg_score = 70.0 + (pos_count * 10) - (neg_count * 10)
     esg_score = max(0.0, min(100.0, esg_score))
     
     # Estimate days late based on negative/positive
     if neg_count > pos_count:
-        days_late = 2 + (neg_count * 1)
+        days_late = 2 + (neg_count * 2)
     elif pos_count > 0:
         days_late = -2 # Early delivery
     else:
         days_late = 2
         
+    def get_relevant_snippet(text, keywords):
+        for kw in keywords:
+            idx = text.lower().find(kw)
+            if idx != -1:
+                start = max(0, idx - 40)
+                end = min(len(text), idx + 80)
+                return text[start:end].replace('\n', ' ')
+        return text[:120].replace('\n', ' ')
+
     # Generate human readable summary
-    if neg_count >= 5 and neg_count > pos_count + 2:
-        osint_summary = f"【OSINT 高度示警】於公開情報網發現大量負面關鍵字 (如訴訟、裁罰或爭議)。片段擷取：'...{summary_text[:120]}...'"
-    elif pos_count > 0 and pos_count >= neg_count:
-        osint_summary = f"【OSINT 評估良好】於公開情報網發現正面評價 (如永續、獲獎或領先)。片段擷取：'...{summary_text[:120]}...'"
+    try:
+        from rag_engine import generate_osint_summary
+        texts_to_send = [s["snippet"] for s in osint_sources_list]
+        gemini_summary = generate_osint_summary(supplier_name, texts_to_send)
+    except Exception as e:
+        print("Failed to import or use rag_engine:", e)
+        gemini_summary = None
+
+    if gemini_summary:
+        osint_summary = gemini_summary
     else:
-        osint_summary = f"【OSINT 中性結果】已於公開網路核實公司實體，未發現重大爭議。片段擷取：'...{summary_text[:120]}...'"
+        if fatal_hits or (len(neg_hits) >= 2 and len(neg_hits) > pos_count):
+            snippet = get_relevant_snippet(summary_text, fatal_hits + neg_hits)
+            osint_summary = f"【OSINT 高度示警】發現嚴重負面關鍵字 (如: {', '.join((fatal_hits + neg_hits)[:3])})。片段擷取：'...{snippet}...'"
+        elif pos_count > 0 and pos_count >= len(neg_hits):
+            snippet = get_relevant_snippet(summary_text, positive_keywords)
+            osint_summary = f"【OSINT 評估良好】發現正面評價。片段擷取：'...{snippet}...'"
+        else:
+            osint_summary = f"【OSINT 中性結果】已於公開網路核實公司實體，未發現重大爭議。片段擷取：'...{summary_text[:120]}...'"
         
-    return {
+    final_result = {
         "esg_score": esg_score,
         "days_late": days_late,
         "po_status": "Completed", # Default
         "osint_summary": osint_summary,
         "osint_sources": osint_sources_list
     }
+    _save_osint_cache(cache_key, final_result)
+    return final_result
 
 if __name__ == "__main__":
     print("Testing Apple...")

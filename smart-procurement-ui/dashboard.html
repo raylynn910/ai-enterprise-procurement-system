@@ -361,6 +361,49 @@
                         </form>
                     </div>
 
+                    <!-- Loading Panel -->
+                    <div class="card glass-panel result-panel" id="onboarding-loading" style="display: none; justify-content: center; align-items: center; text-align: center; border-top: 4px solid var(--primary);">
+                        <div style="padding: 3rem 1rem;">
+                            <!-- Futuristic Scanner Animation -->
+                            <div style="position: relative; width: 120px; height: 120px; margin: 0 auto 2rem auto;">
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; border: 2px dashed rgba(0, 240, 255, 0.3); border-radius: 50%; animation: spin 4s linear infinite;"></div>
+                                <div style="position: absolute; top:10%; left:10%; width:80%; height:80%; border: 2px solid rgba(16, 185, 129, 0.5); border-radius: 50%; border-top-color: transparent; animation: spin 2s ease-in-out infinite reverse;"></div>
+                                <i class="ph ph-fingerprint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 3rem; color: var(--primary); animation: pulse 1.5s infinite;"></i>
+                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; background: linear-gradient(to bottom, rgba(0,240,255,0.2) 0%, transparent 100%); clip-path: polygon(50% 50%, 0 0, 100% 0); animation: scan 2s linear infinite; transform-origin: center;"></div>
+                            </div>
+                            
+                            <h3 style="color: var(--primary); letter-spacing: 2px; margin-bottom: 0.5rem; font-weight: 500;">AI 深度網路徵信中...</h3>
+                            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem;">正在透過 OpenCorporates 及 Adverse Media 進行跨國交叉比對</p>
+                            
+                            <!-- Loading Steps -->
+                            <div style="text-align: left; display: inline-block; font-size: 0.9rem;">
+                                <div id="ob-load-step1" style="color: var(--text-main); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle-notch ph-spin" style="color: var(--primary);"></i> 連線至全球實體註冊庫
+                                </div>
+                                <div id="ob-load-step2" style="color: var(--text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 掃描國際制裁黑名單 (PEP)
+                                </div>
+                                <div id="ob-load-step3" style="color: var(--text-muted); margin-bottom: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 彙整過去五年負面新聞爭議
+                                </div>
+                                <div id="ob-load-step4" style="color: var(--text-muted); display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="ph ph-circle"></i> 生成動態多維度風險雷達
+                                </div>
+                            </div>
+                        </div>
+                        <style>
+                            @keyframes scan {
+                                0% { transform: rotate(0deg); }
+                                100% { transform: rotate(360deg); }
+                            }
+                            @keyframes pulse {
+                                0% { opacity: 0.5; }
+                                50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
+                                100% { opacity: 0.5; }
+                            }
+                        </style>
+                    </div>
+
                     <!-- Result Panel -->
                     <div class="card glass-panel result-panel" id="onboarding-result" style="display: none; border-top: 4px solid var(--success);">
                         <div class="card-header">
