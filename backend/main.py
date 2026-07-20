@@ -935,10 +935,16 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
     if not NEW_SUPPLIER_MODEL_LOADED:
         raise HTTPException(status_code=503, detail="New-supplier scoring model not loaded")
 
+    # 行為率必須成對提供; 只給一個會造成「已知資訊被靜默忽略」的誤導結果
+    provided = (request.mav_rate is not None, request.single_rate is not None)
+    if provided[0] != provided[1]:
+        raise HTTPException(status_code=422, detail=(
+            "mav_rate 與 single_rate 必須同時提供 (Review 模式) 或同時留空 (Day-0 模式), "
+            "只提供其中一個會導致該資訊被忽略而產生誤導性評分"))
+
     try:
         b = new_supplier_bundle
-        # 行為率兩者皆提供 → review 模式; 否則 day0
-        if request.mav_rate is not None and request.single_rate is not None:
+        if all(provided):
             mode, model, feats = "review", b["review_model"], b["features_review"]
             row = {"tier": request.tier, "esg": request.esg,
                    "mav_rate": request.mav_rate, "single_rate": request.single_rate}
@@ -949,12 +955,15 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
         profile = pd.DataFrame([row])[feats]
         proba = model.predict_proba(profile)[0]
         clf = model.named_steps["clf"]
-        pred_idx = int(proba.argmax())
         risk_order = b["risk_order"]
+        # argmax 是 proba 的「欄位位置」; 類別「標籤」須經 classes_ 轉換,
+        # 兩者只在 classes_==[0,1,2] 時碰巧相等, 重訓後不保證
+        pred_pos = int(proba.argmax())
+        pred_label = int(clf.classes_[pred_pos])
 
         # 可解釋性: 標準化特徵值 × 預測類別係數
         z = model.named_steps["scaler"].transform(profile)[0]
-        contrib = z * clf.coef_[list(clf.classes_).index(pred_idx)]
+        contrib = z * clf.coef_[pred_pos]
         order = abs(contrib).argsort()[::-1]
 
         reasons = [RiskReason(
@@ -971,8 +980,8 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
 
         return NewSupplierResponse(
             mode=mode,
-            risk_level=risk_order[pred_idx],
-            probabilities={risk_order[c]: round(float(proba[i]), 4)
+            risk_level=risk_order[pred_label],
+            probabilities={risk_order[int(c)]: round(float(proba[i]), 4)
                            for i, c in enumerate(clf.classes_)},
             reasons=reasons,
             loso_accuracy=round(float(b["loso_accuracy"][mode]), 3),
@@ -987,7 +996,33 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
 
 # ----- 供應商財務風險 API (UCI 台灣真實資料 ML 模型 + Altman Z'' 即時引擎) -----
 
-import financial_risk as fr
+# 即時引擎模組: import 失敗 (如快取 DB 不可寫) 不應擊殺整個 app
+try:
+    import financial_risk as fr
+    FR_ENGINE_LOADED = True
+except Exception as _fr_err:
+    print(f"Warning: financial_risk engine failed to load. Error: {_fr_err}")
+    FR_ENGINE_LOADED = False
+
+
+def _model_contributions(model, Xrow):
+    """回傳逐特徵貢獻 (對正類 logit), 支援 XGBoost / LightGBM / LogReg Pipeline。
+
+    訓練腳本以 CV 挑冠軍, 部署的模型類別可能隨重訓改變 —
+    端點不可寫死單一框架的 API。
+    """
+    import numpy as _np
+    if hasattr(model, "get_booster"):                       # XGBoost
+        import xgboost as _xgb
+        return model.get_booster().predict(
+            _xgb.DMatrix(Xrow), pred_contribs=True)[0][:-1]  # 末位是 bias
+    if hasattr(model, "booster_"):                          # LightGBM
+        return _np.asarray(
+            model.booster_.predict(Xrow, pred_contrib=True))[0][:-1]
+    if hasattr(model, "named_steps") and "c" in getattr(model, "named_steps", {}):
+        z = model.named_steps["s"].transform(Xrow)[0]       # LogReg Pipeline
+        return z * model.named_steps["c"].coef_[0]
+    return _np.zeros(Xrow.shape[1])                         # 未知模型: 無貢獻資訊
 
 class FinancialRatiosRequest(BaseModel):
     ratios: dict = Field(..., description=(
@@ -1017,18 +1052,27 @@ def predict_financial_risk(request: FinancialRatiosRequest = Body(...)):
         if unknown:
             raise HTTPException(status_code=422,
                 detail=f"未知特徵名: {unknown[:5]} (需為 UCI 資料集欄名)")
+        # 值必須是有限數值 — 否則回 422 而非讓 float() 在深處炸成 500
+        clean = {}
+        for k, v in request.ratios.items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422,
+                    detail=f"特徵「{k}」的值必須是數字, 收到: {v!r}")
+            if fv != fv or fv in (float("inf"), float("-inf")):
+                raise HTTPException(status_code=422,
+                    detail=f"特徵「{k}」的值必須是有限數值")
+            clean[k] = fv
         row = dict(b["train_medians"])
-        row.update({k: float(v) for k, v in request.ratios.items()})
+        row.update(clean)
         Xrow = pd.DataFrame([row])[feats]
 
         proba = float(b["model"].predict_proba(Xrow)[0, 1])
         thr = b["thresholds"]
         tier = "High" if proba >= thr["high"] else ("Watch" if proba >= thr["watch"] else "Low")
 
-        # 可解釋性: XGBoost 逐特徵貢獻 (SHAP-style pred_contribs)
-        import xgboost as _xgb
-        contribs = b["model"].get_booster().predict(
-            _xgb.DMatrix(Xrow), pred_contribs=True)[0][:-1]  # 末位是 bias
+        contribs = _model_contributions(b["model"], Xrow)
         order = abs(contribs).argsort()[::-1][:5]
         top = [{"feature": feats[i],
                 "value": round(float(Xrow.iloc[0, i]), 4),
@@ -1055,10 +1099,13 @@ def assess_company_financial(name: str = Query(..., description="公司名稱或
     """
     [即時] 公司名稱 → Altman Z''-score 財務風險評估。
     以 yfinance 抓取最新年報實算 (上市櫃公司), 未上市/查無財報時誠實回報。
+    404 = 查無此公司/財報; 502 = 外部資料源暫時故障 (可重試, 勿當作不存在)。
     """
-    result, err = fr.assess_company(name.strip())
+    if not FR_ENGINE_LOADED:
+        raise HTTPException(status_code=503, detail="Financial assessment engine not loaded")
+    result, err, kind = fr.assess_company(name.strip())
     if err:
-        raise HTTPException(status_code=404, detail=err)
+        raise HTTPException(status_code=502 if kind == "upstream" else 404, detail=err)
     result["method"] = ("Altman Z''-score (1995 新興市場版): "
                         "Z''=6.56·X1+3.26·X2+6.72·X3+1.05·X4; "
                         ">2.6 安全 | 1.1-2.6 灰色 | <1.1 危險")

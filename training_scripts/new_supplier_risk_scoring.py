@@ -208,17 +208,20 @@ def explain(profile: pd.DataFrame, mode: str, top_k: int = 4):
     feats = FEATURES_DAY0 if mode == "day0" else FEATURES_REVIEW
     proba = model.predict_proba(profile[feats])[0]
     clf = model.named_steps["clf"]
-    pred_idx = int(np.argmax(proba))
+    # argmax 是 proba 的「欄位位置」, 類別「標籤」須經 classes_ 轉換;
+    # 兩者只在 classes_==[0,1,2] 時碰巧相等, 缺類別重訓後不保證
+    pred_pos = int(np.argmax(proba))
+    pred_label = int(clf.classes_[pred_pos])
     z = model.named_steps["scaler"].transform(profile[feats])[0]
-    contrib = z * clf.coef_[list(clf.classes_).index(pred_idx)]
+    contrib = z * clf.coef_[pred_pos]
     order = np.argsort(-np.abs(contrib))
 
     lines = [
         f"模式: {'Day-0 入職' if mode=='day0' else 'Review (交易累積後)'}",
-        f"預測風險等級: {RISK_ORDER[pred_idx]}",
+        f"預測風險等級: {RISK_ORDER[pred_label]}",
         "機率分佈: " + "  ".join(
-            f"{RISK_ORDER[c]}={proba[j]:.1%}" for j, c in enumerate(clf.classes_)),
-        f"為什麼是 {RISK_ORDER[pred_idx]}?",
+            f"{RISK_ORDER[int(c)]}={proba[j]:.1%}" for j, c in enumerate(clf.classes_)),
+        f"為什麼是 {RISK_ORDER[pred_label]}?",
     ]
     for r, j in enumerate(order[:top_k], 1):
         direction = "↑ 推向此級" if contrib[j] > 0 else "↓ 拉離此級"
@@ -275,7 +278,14 @@ bundle = {
 model_path = os.path.join(OUTPUT_DIR, "new_supplier_scoring_model.pkl")
 with open(model_path, "wb") as f:
     pickle.dump(bundle, f)
+# 自動部署到 backend/models — 否則重訓後 API 會靜默續用舊模型
+BACKEND_MODELS = os.path.join(REPO_ROOT, "backend", "models")
+os.makedirs(BACKEND_MODELS, exist_ok=True)
+backend_path = os.path.join(BACKEND_MODELS, "new_supplier_scoring_model.pkl")
+with open(backend_path, "wb") as f:
+    pickle.dump(bundle, f)
 print(f"\n💾 評分引擎: {model_path}")
+print(f"💾 已部署至: {backend_path}")
 
 print("\n" + "=" * 72)
 print("📝 使用注意 (供專題報告引用)")

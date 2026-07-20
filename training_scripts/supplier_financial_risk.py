@@ -142,31 +142,73 @@ for name, m in models.items():
     print(f"{name:10s} {r['cv_auc']:8.4f} {r['test_auc']:8.4f} {r['pr_auc']:8.4f} "
           f"{r['recall']:10.2%} {r['precision']:9.2%}")
 
-best_name = max(results, key=lambda k: results[k]["test_auc"])
-best_model = models[best_name]
-print(f"\n🏆 主模型: {best_name} (test AUC={results[best_name]['test_auc']:.4f})")
-
 # =====================================================================
-# STEP 2. 閾值業務調校 — 風險審核不是 0.5 一刀切
-#   High  閾值: 追求精確 (預警名單不能太吵)
-#   Watch 閾值: 追求召回 (寧可多看, 不可漏接)
+# STEP 2. 冠軍選擇 + 閾值校準 — 全部基於訓練集 out-of-fold 機率,
+#   測試集不參與任何選擇 (先前版本在測試集上挑模型與調閾值 → 樂觀偏估)
+#
+#   部署用途是「篩查」: Watch 檔必須接住大多數破產公司。
+#   因此冠軍標準對齊用途: 在 OOF recall ≥ RECALL_FLOOR 的資格線內,
+#   比較各模型能達到的 precision; AUC 高但尾部漏接的模型會被淘汰
+#   (LightGBM 即是: AUC 排名高, 但 25% 破產公司 OOF 機率 < 0.001)。
 # =====================================================================
 print("\n" + "=" * 74)
-print("STEP 2. 閾值業務調校 (基於測試集 PR 曲線)")
+print("STEP 2. 冠軍選擇 + 閾值校準 (訓練集 out-of-fold, 測試集不參與)")
 print("=" * 74)
+from sklearn.model_selection import cross_val_predict
+from sklearn.base import clone
+
+RECALL_FLOOR = 0.75   # Watch 檔的業務底線: 至少接住 75% 破產公司
+PREC_TARGET = 0.45    # High 檔的業務目標: 警報名單至少 45% 命中
+
+grid = [0.005, 0.01, 0.02, 0.03, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+oof_all, candidates = {}, {}
+print(f"{'模型':10s} {'資格(OOF recall≥75%)':>22s} {'達標時 precision':>16s}")
+for name, m in models.items():
+    oof = cross_val_predict(clone(m), X_tr, y_tr, cv=cv, method="predict_proba")[:, 1]
+    oof_all[name] = oof
+    stats = {t: (recall_score(y_tr, (oof >= t).astype(int)),
+                 precision_score(y_tr, (oof >= t).astype(int), zero_division=0))
+             for t in grid}
+    eligible = [t for t in grid if stats[t][0] >= RECALL_FLOOR]
+    if eligible:
+        t_watch = max(eligible)                      # 資格內取最大閾值 (名單最小)
+        candidates[name] = (stats[t_watch][1], t_watch, stats)
+        print(f"{name:10s} {'✅ 達標 (t=' + str(t_watch) + ')':>22s} {stats[t_watch][1]:>16.2%}")
+    else:
+        best_rec = max(s[0] for s in stats.values())
+        print(f"{name:10s} {'❌ 最高僅 ' + format(best_rec, '.0%'):>22s} {'—':>16s}")
+
+if candidates:
+    best_name = max(candidates, key=lambda k: (candidates[k][0], results[k]["cv_auc"]))
+    THR_WATCH = candidates[best_name][1]
+    oof_stats = candidates[best_name][2]
+else:   # 沒有模型達標: 退回 CV-AUC 冠軍, Watch 取其 recall 最高點
+    best_name = max(results, key=lambda k: results[k]["cv_auc"])
+    oof = oof_all[best_name]
+    oof_stats = {t: (recall_score(y_tr, (oof >= t).astype(int)),
+                     precision_score(y_tr, (oof >= t).astype(int), zero_division=0))
+                 for t in grid}
+    THR_WATCH = min(grid)
+    print(f"⚠️ 無模型達到 recall≥{RECALL_FLOOR:.0%}, 退回 CV-AUC 冠軍並以最低閾值當 Watch")
+
+best_model = models[best_name]
+high_cands = [t for t in grid if t > THR_WATCH and oof_stats[t][1] >= PREC_TARGET]
+THR_HIGH = min(high_cands) if high_cands else max(t for t in grid if t > THR_WATCH)
+
+print(f"\n🏆 主模型 (用途對齊選擇): {best_name} "
+      f"(CV-AUC={results[best_name]['cv_auc']:.4f}, test AUC={results[best_name]['test_auc']:.4f})")
+print(f">> OOF 校準: prob≥{THR_HIGH} → High | ≥{THR_WATCH} → Watch | 其餘 → Low")
+print(f"   (OOF 預期: Watch recall={oof_stats[THR_WATCH][0]:.1%} "
+      f"precision={oof_stats[THR_WATCH][1]:.1%}; "
+      f"High precision={oof_stats[THR_HIGH][1]:.1%})")
+
 proba_te = best_model.predict_proba(X_te)[:, 1]
-prec_arr, rec_arr, thr_arr = precision_recall_curve(y_te, proba_te)
-
-print(f"{'閾值':>6s} {'Recall':>8s} {'Precision':>10s}  說明")
-for t in [0.05, 0.1, 0.2, 0.3, 0.5, 0.7]:
+print(">> 測試集在此閾值下的表現 (僅報告, 未參與任何選擇):")
+for t, tag in [(THR_HIGH, "High"), (THR_WATCH, "Watch")]:
     p = (proba_te >= t).astype(int)
-    print(f"{t:6.2f} {recall_score(y_te, p):8.2%} "
-          f"{precision_score(y_te, p, zero_division=0):10.2%}"
-          f"  {'← 廣撒網 (盡職調查名單)' if t == 0.1 else ('← 高警報 (立即行動)' if t == 0.5 else '')}")
-
-THR_HIGH = 0.5    # High: 立即行動
-THR_WATCH = 0.1   # Watch: 加強盡職調查
-print(f"\n>> 採用: prob≥{THR_HIGH} → High | ≥{THR_WATCH} → Watch | 其餘 → Low")
+    print(f"   {tag:5s} (≥{t}): Recall={recall_score(y_te, p):.2%} "
+          f"Precision={precision_score(y_te, p, zero_division=0):.2%}")
+prec_arr, rec_arr, thr_arr = precision_recall_curve(y_te, proba_te)
 
 # =====================================================================
 # STEP 3. 洩漏對照實驗 (供報告引用的反面教材)
@@ -240,6 +282,7 @@ bundle = {
 out_pkl = os.path.join(OUTPUT_DIR, "financial_risk_model.pkl")
 with open(out_pkl, "wb") as f:
     pickle.dump(bundle, f)
+os.makedirs(BACKEND_MODELS, exist_ok=True)  # 目錄不存在時整輪訓練不應敗在最後一步
 backend_pkl = os.path.join(BACKEND_MODELS, "financial_risk_model.pkl")
 with open(backend_pkl, "wb") as f:
     pickle.dump(bundle, f)

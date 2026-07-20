@@ -219,6 +219,7 @@ print(f">> train={len(idx_train)}  val={len(idx_val)}  test={len(idx_test)}")
 # 缺失值填補 — 統計量只取自訓練列, 再套用到全部 (修正: 原版用全資料
 # 中位數, 會把 val/test 的資訊帶進訓練)
 _fill_cols = AGG_FEATURES_A + AGG_FEATURES_B_EXTRA
+X_ohe_prefill = X_ohe.copy()  # 保留未填補版本, 供 STEP 6.5 依審計折內統計重新填補
 neutral_fill = {c: float(X_ohe.iloc[idx_train][c].median()) for c in _fill_cols}
 X_ohe[_fill_cols] = X_ohe[_fill_cols].fillna(neutral_fill)
 df[_fill_cols] = df[_fill_cols].fillna(neutral_fill)  # CatBoost 用的 df 同步
@@ -445,7 +446,10 @@ print("=" * 72)
 rng = np.random.RandomState(RANDOM_STATE)
 all_suppliers = np.array(sorted(df["Supplier ID"].unique()))
 sup_arr = df["Supplier ID"].values
-Xa = X_ohe[FEATURES_A_OHE]
+# 用「未填補」矩陣, 每折以審計訓練供應商的統計量重新填補 —
+# 全域 train-median 填補含有被留出供應商的資訊, 會輕微高估審計分數
+Xa_raw = X_ohe_prefill[FEATURES_A_OHE]
+_audit_fill_cols = [c for c in AGG_FEATURES_A if c in Xa_raw.columns]
 audit_accs = []
 for trial in range(5):
     held_out = rng.choice(all_suppliers, 4, replace=False)
@@ -453,19 +457,28 @@ for trial in range(5):
     y_tr_a, y_te_a = y[~mask_te], y[mask_te]
     if len(np.unique(y_te_a)) < 2:
         continue
+    fold_fill = {c: float(Xa_raw.loc[~mask_te, c].median()) for c in _audit_fill_cols}
+    Xa_tr = Xa_raw[~mask_te].fillna(fold_fill)
+    Xa_te = Xa_raw[mask_te].fillna(fold_fill)  # 測試也用訓練統計量 (上線一致)
     m = LGBMClassifier(
         n_estimators=400, learning_rate=0.05, num_leaves=15,
         feature_fraction=0.7, bagging_fraction=0.7, bagging_freq=1,
         random_state=RANDOM_STATE, verbosity=-1,
     )
-    m.fit(Xa[~mask_te], y_tr_a,
+    m.fit(Xa_tr, y_tr_a,
           sample_weight=compute_sample_weight("balanced", y_tr_a))
-    acc = accuracy_score(y_te_a, m.predict(Xa[mask_te]))
+    acc = accuracy_score(y_te_a, m.predict(Xa_te))
     audit_accs.append(acc)
     print(f"  留出 {list(held_out)} → Acc={acc:.3f}")
-audit_mean = float(np.mean(audit_accs))
-print(f"\n  留供應商出局平均 Acc = {audit_mean:.3f}"
-      f"  (vs 上表 row-level 切分 ≈ {results[best_key]['test']['acc']:.3f})")
+if audit_accs:
+    audit_mean = float(np.mean(audit_accs))
+    print(f"\n  留供應商出局平均 Acc = {audit_mean:.3f}"
+          f"  (vs 上表 row-level 切分 ≈ {results[best_key]['test']['acc']:.3f})")
+else:
+    audit_mean = float("nan")
+    print("\n  ⚠️ 五次抽樣皆只含單一類別, 審計無有效結果 — 請調高抽樣次數")
+print("  註: price_premium 以跨供應商品項均價建構, 審計仍含此輕微資訊共享,")
+print("      故本審計分數應視為供應商泛化能力的「上界」。")
 
 # =====================================================================
 # STEP 7. 誠實註記 (供專題報告引用)
