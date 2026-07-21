@@ -782,19 +782,18 @@ async function fetchAndRenderSuppliers() {
             card.style = `background: ${bgGradient}; ${borderStyle} ${shadowStyle} border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;`;
             
             card.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div style="width: 50px; height: 50px; border-radius: 50%; background: ${isTop1 ? '#ffd700' : '#4a5568'}; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'};">
+                <div style="display: flex; align-items: center; gap: 1.2rem;">
+                    <div style="width: 55px; height: 55px; border-radius: 50%; background: ${isTop1 ? 'linear-gradient(135deg, #ffd700, #f59e0b)' : 'linear-gradient(135deg, #4a5568, #2d3748)'}; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'}; box-shadow: ${isTop1 ? '0 0 15px rgba(255, 215, 0, 0.4)' : 'none'};">
                         ${isTop1 ? '<i class="ph ph-crown"></i>' : `#${sup.rank}`}
                     </div>
                     <div>
-                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.5rem' : '1.25rem'}; color: ${isTop1 ? '#ffd700' : '#fff'};">${sup.name}</h3>
-                        <p style="margin: 0.25rem 0 0 0; color: #a0aec0; font-size: 0.9rem;">${sup.country}</p>
+                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.6rem' : '1.3rem'}; font-weight: 700; color: ${isTop1 ? '#ffd700' : '#f8fafc'}; letter-spacing: 0.5px;">${sup.name}</h3>
+                        <p style="margin: 0.3rem 0 0 0; color: #94a3b8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.3rem;"><i class="ph ph-map-pin"></i> ${sup.country}</p>
                     </div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.25rem; font-weight: bold; color: #4ade80;">${sup.score_text}</div>
-                    <div style="font-size: 0.85rem; color: #a0aec0; margin-top: 0.25rem;"><i class="ph ph-info"></i> ${sup.reason}</div>
-                    <button class="btn btn-primary btn-sm" style="margin-top: 0.5rem; padding: 0.25rem 1rem;">選擇</button>
+                <div style="text-align: right; display: flex; flex-direction: column; justify-content: center; align-items: flex-end;">
+                    <div style="font-size: 1.4rem; font-weight: 800; color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, 0.3); letter-spacing: 0.5px;">${sup.score_text}</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.4rem; max-width: 220px; line-height: 1.4;"><i class="ph ph-lightbulb" style="color: #fbbf24; font-size: 1rem;"></i> ${sup.reason}</div>
                 </div>
             `;
             podiumList.appendChild(card);
@@ -836,6 +835,15 @@ async function fetchAndRenderSuppliers() {
                     opacity: 0.5
                 }
             },
+            plotOptions: {
+                radar: {
+                    size: 95, // Reduce size slightly to make room for long labels
+                    polygons: {
+                        strokeColors: 'rgba(255,255,255,0.1)',
+                        connectorColors: 'rgba(255,255,255,0.1)'
+                    }
+                }
+            },
             colors: customColors,
             labels: ['Cost Savings Score', 'On-Time Delivery', 'ESG Sustainability'],
             stroke: { width: 3, curve: 'smooth' },
@@ -843,7 +851,7 @@ async function fetchAndRenderSuppliers() {
             markers: { size: 5, hover: { size: 8 } },
             xaxis: {
                 labels: {
-                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '12px', fontFamily: 'Inter', fontWeight: 600 }
+                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '11px', fontFamily: 'Inter', fontWeight: 600 }
                 }
             },
             yaxis: { show: false, min: 0, max: 100 },
@@ -851,7 +859,8 @@ async function fetchAndRenderSuppliers() {
             legend: { 
                 position: 'bottom', 
                 labels: { colors: '#fff' },
-                markers: { radius: 12 }
+                markers: { radius: 12 },
+                offsetY: 10
             }
         };
 
