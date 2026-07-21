@@ -18,7 +18,7 @@
 2. 🔮 **議價空間預測 (Savings Prediction)**
    - 下新 PO 單前，依序選擇：採購類別 (Category)、商品項目 (Item Description)、供應商 (Supplier ID + Supplier Name)、合約類型 (Contract ID + Contract Type)，再輸入下訂數量。
    - AI 自動預測**節省率 (Savings Pct)**（非歷史平均價格），並附上判斷說明文字，解釋此次下訂預期節省/超支的原因與金額。
-   - 同步預測該筆新 PO 單是否可能構成違規採購 (Maverick Spend)。
+   - 同步預測該筆新 PO 單是否可能構成爭議採購單 (Disputed)。
 3. 👑 **供應商推薦模型 (Supplier Recommendation)**
    - 選擇採購類別 (Category) 與商品項目 (Item Description) 後，依採購情境（成本優先 / 交期優先 / 合規優先）動態調整推薦權重（綜合考量 Savings、OTD、Risk、ESG），顯示 Top N 供應商推薦排序。
    - 附上 150 字內的判斷說明文字，例如：選擇 A 供應商可降低爭議訂單與對帳糾紛風險；選擇 B 供應商可降低採購成本，但需留意交期延誤風險。
