@@ -1051,42 +1051,219 @@ async function loadTrendChart() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTrendChart();
-    fetchRiskOrders();
+    initAtRiskOrdersView();
 });
 
-// --- Team 1 Risk Model Integration ---
-async function fetchRiskOrders() {
+// ============================================================
+// 採購端 - 有問題的 PO 單追蹤清單
+// ============================================================
+const RiskOrders = {
+    state: {
+        startDate: '',
+        endDate: '',
+        page: 1,
+        pageSize: 50,
+        sortBy: 'po_date',
+        sortOrder: 'desc',
+        total: 0,
+        totalPages: 0,
+    },
+    endpoint: 'http://localhost:8000/api/procurement/at-risk-orders',
+};
+
+// PO 狀態顯示樣式（灰=關閉/取消類、warning=待處理、success=正常）
+function poStatusClass(status) {
+    const s = String(status || '').trim().toLowerCase();
+    if (s === 'open') return 'success';
+    if (s === 'pending' || s === 'on hold') return 'warning';
+    if (s === 'closed') return 'muted';
+    return 'muted';
+}
+function riskFieldClass(rules, prefix) {
+    return rules.some(r => r.code.startsWith(prefix)) ? 'danger' : '';
+}
+
+async function fetchAtRiskOrders() {
+    const s = RiskOrders.state;
+    const params = new URLSearchParams({
+        page: s.page,
+        page_size: s.pageSize,
+        sort_by: s.sortBy,
+        sort_order: s.sortOrder,
+    });
+    if (s.startDate) params.append('start_date', s.startDate);
+    if (s.endDate) params.append('end_date', s.endDate);
+
+    const tbody = document.getElementById('risk-table-body');
+    tbody.innerHTML = '<tr><td colspan="13" class="text-center">載入中...</td></tr>';
+
     try {
-        const response = await fetch('http://localhost:8000/api/risk/orders');
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            const tbody = document.getElementById('risk-table-body');
-            tbody.innerHTML = ''; // 清空
-            
-            if (result.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">目前無高風險訂單。</td></tr>';
-                return;
-            }
-            
-            result.data.forEach(order => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><strong>${order.po_number}</strong></td>
-                    <td>${order.supplier_name}</td>
-                    <td class="danger-text">${order.savings_pct}</td>
-                    <td><span class="status-tag ${order.maverick === 'Yes' ? 'danger' : 'success'}">${order.maverick}</span></td>
-                    <td><span class="status-tag ${order.single_source === 'Yes' ? 'danger' : 'success'}">${order.single_source}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-secondary" onclick="alert('【系統提示】\\n模型判定為高風險。建議審查合約。')"><i class="ph ph-handshake"></i> 審查合約</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
+        const res = await fetch(`${RiskOrders.endpoint}?${params.toString()}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            tbody.innerHTML = `<tr><td colspan="13" class="text-center danger-text">錯誤：${err.detail || res.statusText}</td></tr>`;
+            return;
         }
+        const result = await res.json();
+        s.total = result.total;
+        s.totalPages = result.total_pages;
+
+        document.getElementById('risk-total-count').textContent = result.total.toLocaleString();
+        renderRiskTable(result.data);
+        renderRiskPagination();
+        updateSortIcons();
     } catch (e) {
-        console.error('Failed to fetch risk orders:', e);
+        console.error('Failed to fetch at-risk orders:', e);
+        tbody.innerHTML = `<tr><td colspan="13" class="text-center danger-text">載入失敗：${e.message}</td></tr>`;
     }
+}
+
+function renderRiskTable(rows) {
+    const tbody = document.getElementById('risk-table-body');
+    tbody.innerHTML = '';
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="13" class="text-center">此區間無符合條件的風險訂單。</td></tr>';
+        return;
+    }
+    for (const o of rows) {
+        const rules = o.matched_rules || [];
+        const chips = rules.map(r => `<span class="risk-chip risk-chip-${r.level}" title="${r.code}">${r.label}</span>`).join('');
+
+        const invClass = riskFieldClass(rules, 'invoice_');
+        const payClass = riskFieldClass(rules, 'payment_');
+        const matchClass = riskFieldClass(rules, 'match_');
+        const mavClass = riskFieldClass(rules, 'maverick');
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(o.po_number)}</strong></td>
+            <td>${escapeHtml(o.po_date)}</td>
+            <td><span class="status-tag ${poStatusClass(o.po_status)}">${escapeHtml(o.po_status)}</span></td>
+            <td>${escapeHtml(o.supplier_id)}</td>
+            <td>${escapeHtml(o.supplier_name)}</td>
+            <td>${escapeHtml(o.item_description)}</td>
+            <td class="text-right">${escapeHtml(o.quantity)}</td>
+            <td class="text-right">${escapeHtml(o.savings_pct)}%</td>
+            <td class="${invClass ? 'danger-text' : ''}">${escapeHtml(o.invoice_status)}</td>
+            <td class="${payClass ? 'danger-text' : ''}">${escapeHtml(o.payment_status)}</td>
+            <td class="${matchClass ? 'danger-text' : ''}">${escapeHtml(o.invoice_match_type)}</td>
+            <td class="${mavClass ? 'danger-text' : ''}">${escapeHtml(o.maverick_spend)}</td>
+            <td><div class="risk-chip-group">${chips}</div></td>
+        `;
+        tbody.appendChild(tr);
+    }
+}
+
+function renderRiskPagination() {
+    const s = RiskOrders.state;
+    const info = document.getElementById('risk-page-info');
+    const controls = document.getElementById('risk-page-controls');
+    if (s.total === 0) {
+        info.textContent = '無資料';
+        controls.innerHTML = '';
+        return;
+    }
+    const from = (s.page - 1) * s.pageSize + 1;
+    const to = Math.min(s.page * s.pageSize, s.total);
+    info.textContent = `顯示第 ${from} - ${to} 筆 / 共 ${s.total.toLocaleString()} 筆（第 ${s.page} / ${s.totalPages} 頁）`;
+
+    const pages = buildPageList(s.page, s.totalPages);
+    let html = `<button class="page-btn" data-page="prev" ${s.page === 1 ? 'disabled' : ''}>‹ 上一頁</button>`;
+    for (const p of pages) {
+        if (p === '...') {
+            html += `<span class="page-ellipsis">…</span>`;
+        } else {
+            html += `<button class="page-btn ${p === s.page ? 'active' : ''}" data-page="${p}">${p}</button>`;
+        }
+    }
+    html += `<button class="page-btn" data-page="next" ${s.page === s.totalPages ? 'disabled' : ''}>下一頁 ›</button>`;
+    controls.innerHTML = html;
+
+    controls.querySelectorAll('.page-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const raw = btn.dataset.page;
+            if (raw === 'prev' && s.page > 1) s.page--;
+            else if (raw === 'next' && s.page < s.totalPages) s.page++;
+            else if (!isNaN(parseInt(raw))) s.page = parseInt(raw);
+            else return;
+            fetchAtRiskOrders();
+        });
+    });
+}
+
+// 依當前頁與總頁數，產生形如 [1, '...', 4, 5, 6, '...', 20] 的頁碼列
+function buildPageList(current, total) {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages = [1];
+    const start = Math.max(2, current - 2);
+    const end = Math.min(total - 1, current + 2);
+    if (start > 2) pages.push('...');
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push('...');
+    pages.push(total);
+    return pages;
+}
+
+function updateSortIcons() {
+    const s = RiskOrders.state;
+    document.querySelectorAll('#risk-table th.sortable').forEach(th => {
+        const icon = th.querySelector('.sort-icon');
+        if (!icon) return;
+        if (th.dataset.sort === s.sortBy) {
+            icon.textContent = s.sortOrder === 'asc' ? ' ▲' : ' ▼';
+            th.classList.add('sort-active');
+        } else {
+            icon.textContent = '';
+            th.classList.remove('sort-active');
+        }
+    });
+}
+
+function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function initAtRiskOrdersView() {
+    // 排序點擊
+    document.querySelectorAll('#risk-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            const s = RiskOrders.state;
+            if (s.sortBy === col) {
+                s.sortOrder = s.sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                s.sortBy = col;
+                s.sortOrder = 'desc';
+            }
+            s.page = 1;
+            fetchAtRiskOrders();
+        });
+    });
+
+    // 日期篩選
+    document.getElementById('risk-query-btn').addEventListener('click', () => {
+        const s = RiskOrders.state;
+        s.startDate = document.getElementById('risk-start-date').value;
+        s.endDate = document.getElementById('risk-end-date').value;
+        s.page = 1;
+        fetchAtRiskOrders();
+    });
+    document.getElementById('risk-reset-btn').addEventListener('click', () => {
+        document.getElementById('risk-start-date').value = '';
+        document.getElementById('risk-end-date').value = '';
+        const s = RiskOrders.state;
+        s.startDate = '';
+        s.endDate = '';
+        s.page = 1;
+        s.sortBy = 'po_date';
+        s.sortOrder = 'desc';
+        fetchAtRiskOrders();
+    });
+
+    fetchAtRiskOrders();
 }
 
 

@@ -207,6 +207,192 @@ def get_risk_orders():
         print(f"Error in risk orders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ----- 採購端「有問題的 PO 單」追蹤清單 -----
+# 規則：只要命中下列任一條件即為風險訂單（Cancelled 訂單一律排除）
+#   1. Payment Status ∈ {Overdue, Pending, On Hold}
+#   2. Invoice Status ∈ {Overdue, Pending, Disputed}
+#   3. Invoice Match Type ∈ {2-Way Match, No Match}
+#   4. Maverick Spend = Yes
+
+_ALLOWED_SORT_COLUMNS = {
+    "po_date", "po_number", "po_status", "supplier_id", "supplier_name",
+    "item_description", "quantity", "savings_pct",
+    "invoice_status", "payment_status", "invoice_match_type", "maverick_spend",
+}
+
+def _parse_dmy(date_str):
+    """CSV 內 PO Date 為 dd/mm/yyyy，轉為 pd.Timestamp；失敗回 NaT。"""
+    return pd.to_datetime(date_str, format="%d/%m/%Y", errors="coerce")
+
+def _format_ymd_slash(ts):
+    """回傳台灣常用 yyyy/mm/dd；NaT 回空字串。"""
+    if pd.isna(ts):
+        return ""
+    return ts.strftime("%Y/%m/%d")
+
+def _compute_matched_rules(row):
+    rules = []
+    pay = str(row.get("Payment_Status", "")).strip().lower()
+    if pay in {"overdue", "pending", "on hold"}:
+        rules.append({
+            "code": f"payment_{pay.replace(' ', '_')}",
+            "label": {"overdue": "付款逾期", "pending": "付款待處理", "on hold": "付款凍結"}[pay],
+            "level": "danger" if pay == "overdue" else "warning",
+        })
+    inv = str(row.get("Invoice_Status", "")).strip().lower()
+    if inv in {"overdue", "pending", "disputed"}:
+        rules.append({
+            "code": f"invoice_{inv}",
+            "label": {"overdue": "發票逾期", "pending": "發票待處理", "disputed": "發票爭議"}[inv],
+            "level": "danger" if inv in {"overdue", "disputed"} else "warning",
+        })
+    match_type = str(row.get("Invoice_Match_Type", "")).strip()
+    match_lower = match_type.lower()
+    if match_lower == "2-way match":
+        rules.append({"code": "match_2way", "label": "2-Way Match", "level": "warning"})
+    elif match_lower == "no match":
+        rules.append({"code": "match_none", "label": "無核銷", "level": "danger"})
+    if str(row.get("Maverick_Spend", "")).strip().lower() == "yes":
+        rules.append({"code": "maverick", "label": "越權採購", "level": "danger"})
+    return rules
+
+
+@app.get("/api/procurement/at-risk-orders")
+def get_at_risk_orders(
+    start_date: Optional[str] = Query(None, description="起始日期 yyyy-mm-dd（含）"),
+    end_date: Optional[str] = Query(None, description="結束日期 yyyy-mm-dd（含）"),
+    page: int = Query(1, ge=1, description="頁碼（1 起算）"),
+    page_size: int = Query(50, ge=1, le=50, description="每頁筆數，最多 50"),
+    sort_by: str = Query("po_date", description="排序欄位"),
+    sort_order: str = Query("desc", description="asc / desc"),
+):
+    """
+    給採購端追蹤「有問題的 PO 單」清單。命中任一風險規則即回傳；Cancelled 訂單排除。
+    支援日期區間篩選、欄位排序、分頁（每頁最多 50 筆）。
+    """
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(status_code=500, detail="Database not found.")
+
+    if sort_by not in _ALLOWED_SORT_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
+    if sort_order not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_order: {sort_order}")
+
+    # 解析日期參數 (前端傳 yyyy-mm-dd)
+    start_ts = pd.to_datetime(start_date, format="%Y-%m-%d", errors="coerce") if start_date else None
+    end_ts = pd.to_datetime(end_date, format="%Y-%m-%d", errors="coerce") if end_date else None
+    if start_date and pd.isna(start_ts):
+        raise HTTPException(status_code=400, detail="start_date 格式錯誤，需為 yyyy-mm-dd")
+    if end_date and pd.isna(end_ts):
+        raise HTTPException(status_code=400, detail="end_date 格式錯誤，需為 yyyy-mm-dd")
+
+    try:
+        conn = get_db_connection()
+        sql = '''
+            SELECT
+                "PO_Number", "PO_Date", "PO_Status", "Supplier_ID", "Supplier_Name",
+                "Item_Description", "Quantity", "Savings_Pct",
+                "Invoice_Status", "Payment_Status", "Invoice_Match_Type", "Maverick_Spend"
+            FROM procurement_data
+            WHERE LOWER(TRIM("PO_Status")) != 'cancelled'
+              AND (
+                  LOWER(TRIM("Payment_Status")) IN ('overdue', 'pending', 'on hold')
+                  OR LOWER(TRIM("Invoice_Status")) IN ('overdue', 'pending', 'disputed')
+                  OR LOWER(TRIM("Invoice_Match_Type")) IN ('2-way match', 'no match')
+                  OR LOWER(TRIM("Maverick_Spend")) = 'yes'
+              )
+        '''
+        df = pd.read_sql_query(sql, conn)
+        conn.close()
+
+        if df.empty:
+            return {
+                "status": "success",
+                "total": 0, "page": page, "page_size": page_size, "total_pages": 0,
+                "data": [],
+            }
+
+        # 日期區間篩選 (在 pandas 端做，因 SQLite 存的是 dd/mm/yyyy 字串)
+        df["_po_date_ts"] = df["PO_Date"].apply(_parse_dmy)
+        if start_ts is not None:
+            df = df[df["_po_date_ts"] >= start_ts]
+        if end_ts is not None:
+            df = df[df["_po_date_ts"] <= end_ts]
+
+        if df.empty:
+            return {
+                "status": "success",
+                "total": 0, "page": page, "page_size": page_size, "total_pages": 0,
+                "data": [],
+            }
+
+        # 排序 (數值欄位需先轉型)
+        sort_col_map = {
+            "po_date": "_po_date_ts",
+            "po_number": "PO_Number",
+            "po_status": "PO_Status",
+            "supplier_id": "Supplier_ID",
+            "supplier_name": "Supplier_Name",
+            "item_description": "Item_Description",
+            "quantity": "_quantity_num",
+            "savings_pct": "_savings_pct_num",
+            "invoice_status": "Invoice_Status",
+            "payment_status": "Payment_Status",
+            "invoice_match_type": "Invoice_Match_Type",
+            "maverick_spend": "Maverick_Spend",
+        }
+        if sort_by == "quantity":
+            df["_quantity_num"] = pd.to_numeric(df["Quantity"], errors="coerce")
+        elif sort_by == "savings_pct":
+            df["_savings_pct_num"] = pd.to_numeric(df["Savings_Pct"], errors="coerce")
+
+        df = df.sort_values(
+            by=sort_col_map[sort_by],
+            ascending=(sort_order == "asc"),
+            na_position="last",
+            kind="mergesort",
+        )
+
+        total = len(df)
+        total_pages = (total + page_size - 1) // page_size
+        offset = (page - 1) * page_size
+        page_df = df.iloc[offset : offset + page_size]
+
+        data = []
+        for _, row in page_df.iterrows():
+            data.append({
+                "po_number": row["PO_Number"],
+                "po_date": _format_ymd_slash(row["_po_date_ts"]),
+                "po_status": row["PO_Status"],
+                "supplier_id": row["Supplier_ID"],
+                "supplier_name": row["Supplier_Name"],
+                "item_description": row["Item_Description"],
+                "quantity": row["Quantity"],
+                "savings_pct": row["Savings_Pct"],
+                "invoice_status": row["Invoice_Status"],
+                "payment_status": row["Payment_Status"],
+                "invoice_match_type": row["Invoice_Match_Type"],
+                "maverick_spend": row["Maverick_Spend"],
+                "matched_rules": _compute_matched_rules(row),
+            })
+
+        return {
+            "status": "success",
+            "total": int(total),
+            "page": page,
+            "page_size": page_size,
+            "total_pages": int(total_pages),
+            "data": data,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in at-risk-orders: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ----- Mock API 區塊 (供前端開發使用) -----
 
 class SupplierRiskRequest(BaseModel):
