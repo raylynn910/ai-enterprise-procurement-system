@@ -775,6 +775,15 @@ span.badge {
 .form-control:focus {
     border-color: var(--primary);
 }
+select.form-control,
+select.form-control option {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
+}
 .btn-block {
     width: 100%;
     display: flex;
@@ -1328,4 +1337,148 @@ span.badge {
     font-size: 1.4rem;
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     padding-bottom: 0.5rem;
+}
+
+/* Toggle Switch */
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+}
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.2);
+    transition: .4s;
+}
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 4px;
+    bottom: 4px;
+    background-color: white;
+    transition: .4s;
+}
+input:checked + .slider {
+    background-color: var(--primary);
+}
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+.slider.round {
+    border-radius: 24px;
+}
+.slider.round:before {
+    border-radius: 50%;
+}
+
+/* Light Mode Variables */
+body.light-mode {
+    --bg-main: #f8fafc;
+    --bg-glass: rgba(255, 255, 255, 0.85);
+    --border-glass: rgba(0, 0, 0, 0.1);
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --primary: #0284c7;
+    --primary-glow: rgba(2, 132, 199, 0.2);
+    --secondary: #e2e8f0;
+    --success: #16a34a;
+    --warning: #d97706;
+    --danger: #dc2626;
+    --danger-glow: rgba(220, 38, 38, 0.2);
+    --accent-purple: #9333ea;
+    background-image: none;
+    background-color: var(--bg-main);
+}
+body.light-mode .user-name {
+    background: var(--primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none !important;
+}
+body.light-mode input,
+body.light-mode select {
+    background: #fff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+}
+body.light-mode .btn-secondary {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+body.light-mode .slider {
+    background-color: #cbd5e1;
+}
+body.light-mode .kpi-card:hover {
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+
+/* --- New Refactored Classes for Drawers and Modals --- */
+.drawer-panel {
+    position: fixed; top: 0; right: -500px; width: 400px; height: 100vh;
+    background: #0a0e17; z-index: 1000; transition: right 0.3s ease-in-out;
+    border-left: 1px solid rgba(0, 240, 255, 0.3); padding: 2rem;
+    box-shadow: -5px 0 25px rgba(0,0,0,0.8); overflow-y: auto; display: flex; flex-direction: column;
+}
+.drawer-header-content {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center;
+}
+.modal-content {
+    max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;
+    padding: 2rem; position: relative; border: 1px solid rgba(255,255,255,0.1);
+}
+.btn-erp-sync {
+    padding: 0.5rem 1rem; font-size:0.9rem; display:flex; align-items:center; gap:0.5rem;
+    background: linear-gradient(90deg, #0ea5e9, #2563eb); border:none; color:white;
+    border-radius:6px; cursor:pointer; box-shadow: 0 4px 10px rgba(14,165,233,0.3); transition: all 0.2s;
+}
+.btn-erp-sync:hover {
+    box-shadow: 0 6px 15px rgba(14,165,233,0.5); transform: translateY(-1px);
+}
+.scanner-animation-container {
+    position: relative; width: 120px; height: 120px; margin: 0 auto 2rem auto;
+}
+.scanner-ring-outer {
+    position: absolute; top:0; left:0; width:100%; height:100%;
+    border: 2px dashed rgba(0, 240, 255, 0.3); border-radius: 50%; animation: spin 4s linear infinite;
+}
+.scanner-ring-inner {
+    position: absolute; top:10%; left:10%; width:80%; height:80%;
+    border: 2px solid rgba(16, 185, 129, 0.5); border-radius: 50%; border-top-color: transparent;
+    animation: spin 2s ease-in-out infinite reverse;
+}
+.scanner-icon {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 3rem; color: var(--primary); animation: pulse 1.5s infinite;
+}
+.scanner-beam {
+    position: absolute; top:0; left:0; width:100%; height:100%;
+    background: linear-gradient(to bottom, rgba(0,240,255,0.2) 0%, transparent 100%);
+    clip-path: polygon(50% 50%, 0 0, 100% 0); animation: scan 2s linear infinite; transform-origin: center;
+}
+@keyframes scan {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+@keyframes pulse {
+    0% { opacity: 0.5; }
+    50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
+    100% { opacity: 0.5; }
 }

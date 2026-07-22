@@ -1,4 +1,5 @@
 import os
+import sys
 import pickle
 import numpy as np
 import pandas as pd
@@ -6,6 +7,9 @@ from imblearn.over_sampling import SMOTE, RandomOverSampler
 from sklearn.metrics import classification_report, mean_absolute_error, r2_score
 from sklearn.preprocessing import LabelEncoder
 from xgboost import XGBClassifier, XGBRegressor
+
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 print("=====================================================================")
 print("🚀 [模組一] 啟動：Savings Pct 雙階成本預測與分類 Pipeline (v6.0)")
@@ -16,20 +20,21 @@ print("=====================================================================")
 # =====================================================================
 print("\n=== STEP 1: 執行自動化清洗與多欄位強健型數值轉換 ===")
 
-file_path = "Data_中英欄位.csv"
+current_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(current_dir, "Data_中英欄位.csv")
 if not os.path.exists(file_path):
-    file_path = "Data_中英欄位_After_EDA.csv"
+    file_path = os.path.join(current_dir, "Data_中英欄位_After_EDA.csv")
 
 if not os.path.exists(file_path):
     raise FileNotFoundError(f"❌ 找不到資料來源檔案，請檢查檔案是否存在。")
 
-df = pd.read_csv(file_path)
+df = pd.read_csv(file_path, encoding="utf-8-sig")
 
 # 1.1 移除中文字元與括號，確保欄位錨定
 df.columns = [col.split("（")[0].strip() for col in df.columns]
 
 # 【核心型態防禦函數】：確保 100% 數值純淨
-def force_numeric_clean(series):
+def force_numeric_clean(series, is_price=False):
     s_str = series.astype(str).str.strip().str.lower()
     s_str = s_str.replace({
         "yes": "1", "no": "0", 
@@ -44,7 +49,7 @@ def force_numeric_clean(series):
         fallback_value = 0.0
     s_num = s_num.fillna(fallback_value)
     
-    if s_num.max() > 1.0:
+    if not is_price and s_num.max() > 1.0:
         s_num = s_num / 100.0
     return s_num
 
@@ -52,7 +57,8 @@ def force_numeric_clean(series):
 target_numeric_cols = ["On Time Delivery", "Maverick Spend", "Single Source Flag", "Unit Price", "Budget Unit Price"]
 for col in target_numeric_cols:
     if col in df.columns:
-        df[col] = force_numeric_clean(df[col])
+        is_price_col = ("Price" in col or "Amount" in col)
+        df[col] = force_numeric_clean(df[col], is_price=is_price_col)
 
 # 1.2 剩餘欄位缺失值填補防線
 num_cols = df.select_dtypes(include=[np.number]).columns
@@ -90,10 +96,7 @@ print("\n=== STEP 2: 啟動時序防禦機制，執行 8:2 盲測切分 ===")
 df = df.sort_values(by=["PO Year", "PO Quarter_Encoded"]).reset_index(drop=True)
 
 # 2.1 計算品項滾動歷史均價 (Item_Avg_Price)
-df["Price_Sum"] = df.groupby("Item Code_Encoded")["Unit Price"].transform(lambda x: x.cumsum().shift(1)).fillna(0)
-df["Item_Count"] = df.groupby("Item Code_Encoded")["Unit Price"].transform(lambda x: pd.Series(np.arange(len(x)), index=x.index).shift(1)).fillna(0)
-df["Item_Avg_Price"] = (df["Price_Sum"] / df["Item_Count"]).replace([np.inf, -np.inf], np.nan).fillna(0)
-df = df.drop(columns=["Price_Sum", "Item_Count"])
+df["Item_Avg_Price"] = df.groupby("Item Code_Encoded")["Unit Price"].transform(lambda x: x.shift(1).expanding().mean()).fillna(0)
 
 # 🚀【高準度核心優化特徵】：衍生預算單價與歷史行情的內在價差率（Gap Pct）
 df["Budget_vs_Avg_Gap"] = (df["Budget Unit Price"] - df["Item_Avg_Price"]) / (df["Item_Avg_Price"] + 1e-5)
@@ -180,16 +183,17 @@ print(classification_report(y_test_t1_cls, final_cls_preds, zero_division=0))
 # STEP 4. 模型與組件打包導出 (與後端對接必備)
 # =====================================================================
 print("\n📦 開始打包模型與編碼器元件...")
-os.makedirs("models", exist_ok=True)
+model_dir = os.path.join(os.path.dirname(current_dir), "backend", "models")
+os.makedirs(model_dir, exist_ok=True)
 
-with open("models/reg_model.pkl", "wb") as f:
+with open(os.path.join(model_dir, "reg_model.pkl"), "wb") as f:
     pickle.dump(reg_model, f)
-with open("models/cls_refiner.pkl", "wb") as f:
+with open(os.path.join(model_dir, "cls_refiner.pkl"), "wb") as f:
     pickle.dump(cls_refiner, f)
-with open("models/le_dict.pkl", "wb") as f:
+with open(os.path.join(model_dir, "le_dict.pkl"), "wb") as f:
     pickle.dump(le_dict, f)
-with open("models/features_list.pkl", "wb") as f:
+with open(os.path.join(model_dir, "features_list.pkl"), "wb") as f:
     pickle.dump(features_t1, f)
 
-print("💾 [模組一] 所有模型元件 (v6.0) 已成功導出至 models/ 資料夾！")
+print(f"💾 [模組一] 所有模型元件 (v6.0) 已成功導出至 {model_dir} 資料夾！")
 print("=====================================================================")

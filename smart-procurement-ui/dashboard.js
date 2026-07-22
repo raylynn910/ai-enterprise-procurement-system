@@ -1,7 +1,30 @@
 // dashboard.js
 
+/**
+ * Generic API Fetch Utility
+ * @param {string} url - API Endpoint
+ * @param {object} options - Fetch options (method, headers, body)
+ * @returns {Promise<any>} JSON response
+ */
+async function fetchAPI(url, options = {}) {
+    try {
+        const response = await fetch(url, {
+            headers: { 'Content-Type': 'application/json', ...options.headers },
+            ...options
+        });
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('API Fetch failed:', error);
+        throw error;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadOverviewKPIs();
+    initDynamicDropdowns();
     // SPA Navigation Logic
     const navItems = document.querySelectorAll('.nav-item[data-target]');
     const views = document.querySelectorAll('.view-section');
@@ -195,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 osintContainer.appendChild(card);
                             });
                             osintModal.style.display = 'flex';
+                            setTimeout(() => osintModal.classList.add('show'), 10);
                         };
                     } else {
                         btnViewOsint.style.display = 'none';
@@ -202,12 +226,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     if (closeOsintModal && osintModal) {
-                        closeOsintModal.onclick = function() {
-                            osintModal.style.display = 'none';
+                        const hideModal = () => {
+                            osintModal.classList.remove('show');
+                            setTimeout(() => { osintModal.style.display = 'none'; }, 300);
                         };
+                        closeOsintModal.onclick = hideModal;
                         osintModal.onclick = function(e) {
                             if (e.target === osintModal) {
-                                osintModal.style.display = 'none';
+                                hideModal();
                             }
                         };
                     }
@@ -334,11 +360,19 @@ document.addEventListener('DOMContentLoaded', () => {
             btnPredict.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 預測中...';
             btnPredict.disabled = true;
 
-            const supplier = document.getElementById('input-supplier').value;
-            const category = document.getElementById('input-contract') ? document.getElementById('input-contract').value : 'IT Software';
+            const supplier = document.getElementById('input-supplier') ? document.getElementById('input-supplier').value : 'SUP-001';
+            const category = document.getElementById('input-category') ? document.getElementById('input-category').value : 'IT Software';
+            const item_desc = document.getElementById('input-item-desc') ? document.getElementById('input-item-desc').value : '';
+            const contract_id = document.getElementById('input-contract') ? document.getElementById('input-contract').value : '';
             const quantity = parseInt(document.getElementById('input-quantity').value) || 100;
             const budget = parseFloat(document.getElementById('input-budget').value) || 0;
             const budgetUnitPrice = budget / quantity; // API expects unit price
+            
+            // Show loading status for AI explanation
+            const aiExplanationEl = document.getElementById('val-ai-explanation');
+            if (aiExplanationEl) {
+                aiExplanationEl.innerText = "正在分析中...";
+            }
             
             try {
                 // Call POST /api/predict/savings API
@@ -346,8 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        supplier_id: supplier || 'SUP-001',
+                        supplier_id: supplier,
                         category: category,
+                        item_description: item_desc,
+                        contract_id: contract_id,
                         quantity: quantity,
                         budget_price: budgetUnitPrice
                     })
@@ -393,6 +429,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 
+                // Update AI Explanation
+                const aiExplanationEl = document.getElementById('val-ai-explanation');
+                if (aiExplanationEl) {
+                    aiExplanationEl.innerText = result.ai_explanation || "無解釋資訊。";
+                }
+                
+                // Update Disputed alert badge
+                const disputedContainer = document.getElementById('disputed-alert-container');
+                if (disputedContainer) {
+                    if (result.is_disputed) {
+                        disputedContainer.innerHTML = '<div class="alert alert-danger p-2 rounded" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3);"><i class="ph ph-warning-circle text-danger"></i> <strong>高風險警告：</strong> AI 預測此訂單極可能產生爭議 (Disputed Invoice/PO)，請再次核對合約與供應商條款。</div>';
+                    } else {
+                        disputedContainer.innerHTML = '<div class="alert alert-success p-2 rounded" style="background: rgba(0, 200, 83, 0.1); border: 1px solid rgba(0, 200, 83, 0.3);"><i class="ph ph-check-circle text-success"></i> <strong>交易健康：</strong> 未偵測到明顯爭議風險。</div>';
+                    }
+                }
+
                 // Show result panel
                 predictionResult.style.display = 'block';
                 
@@ -411,6 +463,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let reportPieChartInstance = null;
     let reportBarChartInstance = null;
 
+    const reportRangeSelect = document.getElementById('report-range-select');
+    const reportCustomRange = document.getElementById('report-custom-range');
+    const reportStartDate = document.getElementById('report-start-date');
+    const reportEndDate = document.getElementById('report-end-date');
+
+    if (reportRangeSelect) {
+        reportRangeSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                reportCustomRange.style.display = 'flex';
+            } else {
+                reportCustomRange.style.display = 'none';
+            }
+        });
+    }
+
     document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
         const btn = document.getElementById('btn-weekly-report');
         const loadingStatus = document.getElementById('report-loading-status');
@@ -419,10 +486,38 @@ document.addEventListener('DOMContentLoaded', () => {
         
         btn.disabled = true;
         loadingStatus.style.display = 'inline-block';
+
+        let dateQuery = '';
+        if (reportRangeSelect) {
+            const rangeType = reportRangeSelect.value;
+            let start = new Date();
+            let end = new Date();
+            
+            if (rangeType === 'this_week') {
+                start.setDate(end.getDate() - 7);
+            } else if (rangeType === 'last_week') {
+                start.setDate(end.getDate() - 14);
+                end.setDate(end.getDate() - 7);
+            } else if (rangeType === 'last_30_days') {
+                start.setDate(end.getDate() - 30);
+            } else if (rangeType === 'custom') {
+                if (reportStartDate.value && reportEndDate.value) {
+                    start = new Date(reportStartDate.value);
+                    end = new Date(reportEndDate.value);
+                } else {
+                    alert('請選擇完整的自訂日期區間');
+                    btn.disabled = false;
+                    loadingStatus.style.display = 'none';
+                    return;
+                }
+            }
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            dateQuery = `&start_date=${formatDate(start)}&end_date=${formatDate(end)}`;
+        }
         
         try {
             // 第 1 步：先拉取圖表數據 (skip_gemini=true)，讓畫面瞬間渲染，不用等 AI 生成
-            const resFast = await fetch('http://localhost:8000/api/reports/weekly?skip_gemini=true');
+            const resFast = await fetch(`http://localhost:8000/api/reports/weekly?skip_gemini=true${dateQuery}`);
             if (!resFast.ok) throw new Error('API fetching failed');
             const resultFast = await resFast.json();
             
@@ -499,7 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // 第 2 步：背景拉取完整的 Gemini 報表
-            const resFull = await fetch('http://localhost:8000/api/reports/weekly');
+            const resFull = await fetch(`http://localhost:8000/api/reports/weekly?skip_gemini=false${dateQuery}`);
             if (resFull.ok) {
                 const resultFull = await resFull.json();
                 document.getElementById('val-report-content').innerHTML = marked.parse(resultFull.markdown);
@@ -1393,28 +1488,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
                     
                     // Recent POs
-                    const tbody = document.getElementById('sc-po-tbody');
-                    tbody.innerHTML = '';
-                    
-                    if (data.recent_pos && data.recent_pos.length > 0) {
-                        data.recent_pos.forEach(po => {
-                            let mavClass = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'danger-text' : 'success-text';
-                            let mavText = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'Yes' : 'No';
-                            
-                            const tr = document.createElement('tr');
-                            tr.innerHTML = `
-                                <td>${po.PO_ID}</td>
-                                <td>${po.PO_Date}</td>
-                                <td>${po.Category}</td>
-                                <td>$${Number(po.Spend).toLocaleString()}</td>
-                                <td class="${mavClass}">${mavText}</td>
-                                <td>${po.PO_Status}</td>
-                            `;
-                            tbody.appendChild(tr);
-                        });
-                    } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
-                    }
+                    window.SupplierPOsState.data = data.recent_pos || [];
+                    window.SupplierPOsState.sortBy = 'date';
+                    window.SupplierPOsState.sortOrder = 'desc';
+                    renderSupplierPOs();
                     
                 } catch (e) {
                     console.error('Search failed:', e);
@@ -1423,6 +1500,93 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+});
+
+// --- Supplier POs Sorting Logic ---
+window.SupplierPOsState = {
+    data: [],
+    sortBy: 'date',
+    sortOrder: 'desc'
+};
+
+function renderSupplierPOs() {
+    const tbody = document.getElementById('sc-po-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    
+    let pos = [...window.SupplierPOsState.data];
+    const s = window.SupplierPOsState;
+    
+    if (pos.length > 0) {
+        pos.sort((a, b) => {
+            let valA, valB;
+            switch(s.sortBy) {
+                case 'id': valA = String(a.PO_ID || ''); valB = String(b.PO_ID || ''); break;
+                case 'date': valA = String(a.PO_Date || ''); valB = String(b.PO_Date || ''); break;
+                case 'category': valA = String(a.Category || ''); valB = String(b.Category || ''); break;
+                case 'spend': valA = Number(a.Spend) || 0; valB = Number(b.Spend) || 0; break;
+                case 'maverick': 
+                    const mA = String(a.Maverick_Spend || '').toLowerCase();
+                    const mB = String(b.Maverick_Spend || '').toLowerCase();
+                    valA = (mA === 'yes' || mA === 'true' || mA === '1') ? 1 : 0; 
+                    valB = (mB === 'yes' || mB === 'true' || mB === '1') ? 1 : 0; 
+                    break;
+                case 'status': valA = String(a.PO_Status || ''); valB = String(b.PO_Status || ''); break;
+                default: valA = String(a.PO_Date || ''); valB = String(b.PO_Date || ''); break;
+            }
+            if (valA < valB) return s.sortOrder === 'asc' ? -1 : 1;
+            if (valA > valB) return s.sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        pos.forEach(po => {
+            const mStr = String(po.Maverick_Spend || '').toLowerCase();
+            let mavClass = (mStr === 'yes' || mStr === 'true' || mStr === '1') ? 'danger-text' : 'success-text';
+            let mavText = (mStr === 'yes' || mStr === 'true' || mStr === '1') ? 'Yes' : 'No';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${po.PO_ID}</td>
+                <td>${po.PO_Date}</td>
+                <td>${po.Category}</td>
+                <td>$${Number(po.Spend || 0).toLocaleString()}</td>
+                <td class="${mavClass}">${mavText}</td>
+                <td>${po.PO_Status}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
+    }
+    
+    // Update sort icons
+    document.querySelectorAll('#view-supplier .sortable').forEach(th => {
+        const icon = th.querySelector('i');
+        if (!icon) return;
+        if (th.dataset.sort === s.sortBy) {
+            icon.className = s.sortOrder === 'asc' ? 'ph ph-sort-ascending' : 'ph ph-sort-descending';
+            icon.style.color = 'var(--primary)';
+        } else {
+            icon.className = 'ph ph-arrows-down-up';
+            icon.style.color = 'var(--text-muted)';
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#view-supplier .sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            const s = window.SupplierPOsState;
+            if (s.sortBy === col) {
+                s.sortOrder = s.sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                s.sortBy = col;
+                s.sortOrder = 'desc';
+            }
+            renderSupplierPOs();
+        });
+    });
 });
 
 
@@ -1504,3 +1668,180 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ==========================================
+// Dynamic Cascading Dropdowns for Prediction
+// ==========================================
+let globalOptionData = null;
+
+async function initDynamicDropdowns() {
+    const categorySelect = document.getElementById('input-category');
+    if (!categorySelect) return;
+    
+    try {
+        const response = await fetch('http://localhost:8000/api/options');
+        if (!response.ok) throw new Error("Failed to fetch options");
+        const result = await response.json();
+        if (result.status === "success") {
+            globalOptionData = result.data;
+            populateCategoryDropdown();
+            
+            // Add event listener for category change
+            categorySelect.addEventListener('change', () => {
+                updateDependentDropdowns(categorySelect.value);
+            });
+            
+            // Initial population
+            if (categorySelect.options.length > 0) {
+                updateDependentDropdowns(categorySelect.value);
+            }
+        }
+    } catch (e) {
+        console.error("Error loading dynamic options:", e);
+    }
+}
+
+function populateCategoryDropdown() {
+    const categorySelect = document.getElementById('input-category');
+    if (!categorySelect || !globalOptionData) return;
+    
+    // Save current selection to restore if possible
+    const currentVal = categorySelect.value;
+    categorySelect.innerHTML = '';
+    
+    const categories = Object.keys(globalOptionData).sort();
+    categories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = cat;
+        categorySelect.appendChild(option);
+    });
+    
+    if (categories.includes(currentVal)) {
+        categorySelect.value = currentVal;
+    } else if (categories.length > 0) {
+        categorySelect.value = categories[0];
+    }
+}
+
+function updateDependentDropdowns(category) {
+    if (!globalOptionData || !globalOptionData[category]) return;
+    
+    const data = globalOptionData[category];
+    
+    const itemSelect = document.getElementById('input-item-desc');
+    const supplierSelect = document.getElementById('input-supplier');
+    const contractSelect = document.getElementById('input-contract');
+    
+    if (itemSelect) {
+        itemSelect.innerHTML = '';
+        data.items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item;
+            opt.textContent = item;
+            itemSelect.appendChild(opt);
+        });
+    }
+    
+    if (supplierSelect) {
+        supplierSelect.innerHTML = '';
+        data.suppliers.forEach(sup => {
+            const opt = document.createElement('option');
+            opt.value = sup.id; // API expects supplier_id
+            opt.textContent = sup.name;
+            supplierSelect.appendChild(opt);
+        });
+    }
+    
+    if (contractSelect) {
+        contractSelect.innerHTML = '';
+        data.contracts.forEach(contract => {
+            const opt = document.createElement('option');
+            // the contract value could just be the ID, let's parse if we added format 'ID (Type)'
+            const contractId = contract.split(" ")[0];
+            opt.value = contractId;
+            opt.textContent = contract;
+            contractSelect.appendChild(opt);
+        });
+    }
+}
+
+// Settings Drawer Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsBtn = document.getElementById('btn-settings');
+    const settingsDrawer = document.getElementById('settings-drawer');
+    const closeSettingsBtn = document.getElementById('btn-close-settings');
+    const overlay = document.getElementById('drawer-overlay');
+
+    const openSettings = () => {
+        if (settingsDrawer && overlay) {
+            overlay.style.display = 'block';
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+                settingsDrawer.style.display = 'block';
+                setTimeout(() => {
+                    settingsDrawer.style.right = '0';
+                }, 10);
+            }, 10);
+        }
+    };
+
+    const closeSettings = () => {
+        if (settingsDrawer && overlay) {
+            settingsDrawer.style.right = '-400px';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                settingsDrawer.style.display = 'none';
+            }, 300);
+        }
+    };
+
+    if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
+    if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+    // Since overlay is shared with other drawers, we only add a generic close if it's visible for settings
+    if (overlay) {
+        overlay.addEventListener('click', () => {
+            if (settingsDrawer && settingsDrawer.style.right === '0px') {
+                closeSettings();
+            }
+        });
+    }
+
+    // Settings Functionality
+    const toggleLightMode = document.getElementById('toggle-light-mode');
+    if (toggleLightMode) {
+        // Load saved preference
+        if (localStorage.getItem('light-mode') === 'true') {
+            document.body.classList.add('light-mode');
+            toggleLightMode.checked = true;
+        }
+
+        toggleLightMode.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.body.classList.add('light-mode');
+                localStorage.setItem('light-mode', 'true');
+            } else {
+                document.body.classList.remove('light-mode');
+                localStorage.setItem('light-mode', 'false');
+            }
+        });
+    }
+
+    // Dummy persistence for alerts
+    const toggleAlertRisk = document.getElementById('toggle-alert-risk');
+    const toggleAlertPrice = document.getElementById('toggle-alert-price');
+    
+    [toggleAlertRisk, toggleAlertPrice].forEach(toggle => {
+        if (toggle) {
+            const saved = localStorage.getItem(toggle.id);
+            if (saved !== null) {
+                toggle.checked = saved === 'true';
+            }
+            toggle.addEventListener('change', (e) => {
+                localStorage.setItem(toggle.id, e.target.checked);
+            });
+        }
+    });
+});
+
