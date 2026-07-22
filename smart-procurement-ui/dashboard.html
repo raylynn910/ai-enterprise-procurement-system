@@ -239,25 +239,63 @@
             <!-- VIEW: Risk Orders (Risk List) -->
             <div id="view-risk" class="view-section">
                 <div class="dashboard-header">
-                    <h1>風險訂單清單 (Risk List)</h1>
-                    <p>抓出超出預算風險、Maverick Spend (越權採購)、單一來源 (Single Source) 的高風險採購單。</p>
+                    <h1>風險訂單追蹤清單 (At-Risk PO Tracker)</h1>
+                    <p>依付款、發票、核銷比對、越權採購四大規則篩選出需要追蹤處理的採購單。已排除已取消 (Cancelled) 訂單。</p>
+                </div>
+
+                <!-- 日期篩選列 -->
+                <div class="card glass-panel" style="margin-bottom: 1rem;">
+                    <div style="display:flex; flex-wrap:wrap; gap:1rem; align-items:flex-end;">
+                        <div>
+                            <label for="risk-start-date" style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">起始日期 (PO Date)</label>
+                            <input type="date" id="risk-start-date" class="date-input" />
+                        </div>
+                        <div>
+                            <label for="risk-end-date" style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">結束日期 (PO Date)</label>
+                            <input type="date" id="risk-end-date" class="date-input" />
+                        </div>
+                        <div>
+                            <button id="risk-query-btn" class="btn btn-primary"><i class="ph ph-magnifying-glass"></i> 查詢</button>
+                            <button id="risk-reset-btn" class="btn btn-secondary" style="margin-left:0.5rem;"><i class="ph ph-arrow-counter-clockwise"></i> 重設</button>
+                        </div>
+                        <div style="margin-left:auto; text-align:right;">
+                            <div style="font-size:0.85rem; color:var(--text-muted);">符合條件</div>
+                            <div style="font-size:1.5rem; font-weight:600;"><span id="risk-total-count">0</span> 筆</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="card glass-panel">
-                    <table class="data-table" id="risk-table">
-                        <thead>
-                            <tr>
-                                <th>PO 編號</th>
-                                <th>供應商</th>
-                                <th>預測超支 (Savings Pct)</th>
-                                <th>越權採購 (Maverick)</th>
-                                <th>單一來源 (Single Source)</th>
-                                <th>建議行動</th>
-                            </tr>
-                        </thead>
-                        <tbody id="risk-table-body">
-                        </tbody>
-                    </table>
+                    <div style="overflow-x:auto;">
+                        <table class="data-table sortable-table" id="risk-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="po_number">PO 編號 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="po_date">PO 日期 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="po_status">PO 狀態 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="supplier_id">供應商 ID <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="supplier_name">供應商名稱 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="item_description">商品 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="quantity">數量 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="savings_pct">預算比 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="invoice_status">發票狀態 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="payment_status">付款狀態 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="invoice_match_type">核銷比對 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="maverick_spend">越權採購 <span class="sort-icon"></span></th>
+                                    <th>風險原因</th>
+                                </tr>
+                            </thead>
+                            <tbody id="risk-table-body">
+                                <tr><td colspan="13" class="text-center">載入中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 分頁控制 -->
+                    <div id="risk-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; flex-wrap:wrap; gap:0.5rem;">
+                        <div style="font-size:0.85rem; color:var(--text-muted);" id="risk-page-info">-</div>
+                        <div style="display:flex; gap:0.25rem; align-items:center;" id="risk-page-controls"></div>
+                    </div>
                 </div>
             </div>
 
