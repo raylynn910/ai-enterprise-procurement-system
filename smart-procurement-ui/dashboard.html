@@ -541,19 +541,34 @@
                 </div>
 
 
-                <!-- 新增: 供應商財務體質 (financial-risk ML + Altman Z-score 即時) -->
+                <!-- 新增: 供應商財務體質 (financial-risk ML Bankruptcy Model) -->
                 <div class="card glass-panel mt-4" style="padding:2rem;">
-                    <h3 style="margin-top:0;"><i class="ph ph-chart-line-up"></i> 供應商財務體質評估</h3>
-                    <p style="color:var(--text-muted); font-size:0.9rem;">輸入上市/上櫃公司名稱或股號,即時抓取最新財報計算 Altman Z''-score。</p>
-                    <div style="display:flex; gap:1rem;">
-                        <input type="text" id="fin-name" class="form-control" placeholder="例如: 台積電 / 2330 / 2330.TW" style="flex:1;">
-                        <button type="button" class="btn btn-primary" id="btn-financial-assess"><i class="ph ph-magnifying-glass"></i> 查詢</button>
+                    <h3 style="margin-top:0;"><i class="ph ph-chart-line-up"></i> 供應商財務體質評估 (ML Bankruptcy Model)</h3>
+                    <p style="color:var(--text-muted); font-size:0.9rem;">輸入供應商的關鍵正規化財務比率 (0~1)，其餘特徵將由模型自動以中位數補值，即時預測破產風險。</p>
+                    <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom: 1rem;">
+                        <div style="flex:1; min-width: 200px;">
+                            <label style="font-size: 0.85rem; color: var(--text-muted);">ROA (Net Income / Total Assets):</label>
+                            <input type="number" id="fin-roa" class="form-control" placeholder="例: 0.82" step="0.01" min="0" max="1" value="0.82">
+                        </div>
+                        <div style="flex:1; min-width: 200px;">
+                            <label style="font-size: 0.85rem; color: var(--text-muted);">負債比率 (Total debt / Total net worth):</label>
+                            <input type="number" id="fin-debt" class="form-control" placeholder="例: 0.05" step="0.01" min="0" max="1" value="0.05">
+                        </div>
                     </div>
-                    <div id="financial-result" style="display:none; margin-top:1.5rem;">
-                        <span class="badge" id="fin-res-zone" style="font-size:1.1rem; padding:0.5rem 1rem;">Safe</span>
-                        <span style="margin-left:1rem; font-size:1.3rem; font-weight:700;" id="fin-res-zscore">Z''=0</span>
-                        <p style="margin-top:0.8rem; color:var(--text-muted);" id="fin-res-desc"></p>
-                        <p style="font-size:0.85rem; color:var(--text-muted);">財報期別: <span id="fin-res-date"></span> | 股號: <span id="fin-res-ticker"></span></p>
+                    <div style="display:flex; gap:1rem;">
+                        <button type="button" class="btn btn-primary" id="btn-financial-assess"><i class="ph ph-magic-wand"></i> 執行 AI 預測</button>
+                    </div>
+                    <div id="financial-result" style="display:none; margin-top:1.5rem; background: rgba(0,0,0,0.2); padding: 1.5rem; border-radius: 8px;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <span class="badge" id="fin-res-zone" style="font-size:1.1rem; padding:0.5rem 1rem;"></span>
+                            <span style="font-size:1.2rem; font-weight:700;" id="fin-res-prob"></span>
+                        </div>
+                        <p style="margin-top:1rem; color:var(--text-muted); font-size: 0.9rem;"><i class="ph ph-info"></i> 模型資訊: <span id="fin-res-model"></span> (補值特徵數: <span id="fin-res-filled"></span>)</p>
+                        <div style="margin-top: 1rem;">
+                            <strong><i class="ph ph-list-magnifying-glass"></i> 關鍵決策因子 (Top Factors):</strong>
+                            <ul id="fin-res-factors" style="margin-top: 0.5rem; color: #cbd5e1; font-size: 0.9rem;">
+                            </ul>
+                        </div>
                     </div>
                     <div id="financial-error" style="display:none; margin-top:1rem; color:var(--danger);"></div>
                 </div>

@@ -351,52 +351,72 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-
-    // 供應商財務體質評估 (financial: 名稱 → Altman Z''-score 即時計算)
+    // 供應商財務體質評估 (financial: ML Bankruptcy Model)
     const btnFinancialAssess = document.getElementById('btn-financial-assess');
     if (btnFinancialAssess) {
         btnFinancialAssess.addEventListener('click', async () => {
-            const name = document.getElementById('fin-name').value.trim();
+            const roa = parseFloat(document.getElementById('fin-roa').value);
+            const debt = parseFloat(document.getElementById('fin-debt').value);
+            
             const errBox = document.getElementById('financial-error');
             const resultBox = document.getElementById('financial-result');
             errBox.style.display = 'none';
             resultBox.style.display = 'none';
-            if (!name) {
-                errBox.innerText = '請輸入公司名稱或股號。';
-                errBox.style.display = 'block';
-                return;
-            }
+            
+            btnFinancialAssess.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 預測中...';
             btnFinancialAssess.disabled = true;
-            btnFinancialAssess.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 查詢中...';
+
             try {
-                const res = await fetch(`http://localhost:8000/api/assess/company-financial?name=${encodeURIComponent(name)}`);
-                const d = await res.json();
+                const ratios = {};
+                if (!isNaN(roa)) ratios['Net Income to Total Assets'] = roa;
+                if (!isNaN(debt)) ratios['Total debt/Total net worth'] = debt;
+                
+                const res = await fetch(`http://localhost:8000/api/predict/financial-risk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ratios })
+                });
+
                 if (!res.ok) {
-                    throw new Error(d.detail || `HTTP ${res.status}`);
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || `HTTP error ${res.status}`);
                 }
 
-                const zoneColors = { Safe: 'var(--success)', Grey: 'var(--warning)', Distress: 'var(--danger)' };
-                const color = zoneColors[d.zone] || 'var(--text-muted)';
-                const zoneBadge = document.getElementById('fin-res-zone');
-                zoneBadge.innerText = d.zone;
-                zoneBadge.style.border = `1px solid ${color}`;
-                zoneBadge.style.color = color;
-                zoneBadge.style.background = 'transparent';
+                const data = await res.json();
+                
+                const badge = document.getElementById('fin-res-zone');
+                if (data.risk_tier === 'Safe' || data.risk_tier === 'Low') {
+                    badge.style = 'background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success); display: inline-block;';
+                    badge.innerText = `風險層級: 低 (Low)`;
+                } else if (data.risk_tier === 'High') {
+                    badge.style = 'background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger); display: inline-block;';
+                    badge.innerText = `風險層級: 高 (High)`;
+                } else {
+                    badge.style = 'background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning); display: inline-block;';
+                    badge.innerText = `風險層級: 觀察 (Watch)`;
+                }
 
-                document.getElementById('fin-res-zscore').innerText = `Z''=${d.z_score}`;
-                document.getElementById('fin-res-desc').innerText = d.zone_description
-                    + (d.period_note ? `　⚠️ ${d.period_note}` : '');
-                document.getElementById('fin-res-date').innerText = d.statement_date;
-                document.getElementById('fin-res-ticker').innerText = d.ticker;
+                document.getElementById('fin-res-prob').innerText = `預測破產機率: ${(data.probability * 100).toFixed(2)}%`;
+                document.getElementById('fin-res-model').innerText = data.model_info;
+                document.getElementById('fin-res-filled').innerText = data.filled_with_median;
+                
+                const factorsList = document.getElementById('fin-res-factors');
+                factorsList.innerHTML = '';
+                data.top_factors.forEach(f => {
+                    const li = document.createElement('li');
+                    const impactStr = f.impact > 0 ? `<span class="danger-text">增加風險 (+${f.impact.toFixed(3)})</span>` : `<span class="success-text">降低風險 (${f.impact.toFixed(3)})</span>`;
+                    li.innerHTML = `${f.feature} (值: ${f.value.toFixed(4)}) : ${impactStr}`;
+                    factorsList.appendChild(li);
+                });
 
                 resultBox.style.display = 'block';
             } catch (e) {
                 console.error(e);
-                errBox.innerText = `查詢失敗: ${e.message}`;
+                errBox.innerText = `預測失敗: ${e.message}`;
                 errBox.style.display = 'block';
             } finally {
+                btnFinancialAssess.innerHTML = '<i class="ph ph-magic-wand"></i> 執行 AI 預測';
                 btnFinancialAssess.disabled = false;
-                btnFinancialAssess.innerHTML = '<i class="ph ph-magnifying-glass"></i> 查詢';
             }
         });
     }
