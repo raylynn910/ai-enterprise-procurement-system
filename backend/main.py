@@ -475,6 +475,7 @@ class SupplierRiskRequest(BaseModel):
     country: Optional[str] = Field(None, description="供應商所在國家", example="South Korea")
     category: Optional[str] = Field(None, description="採購類別", example="Raw Materials")
     lead_time_days: Optional[int] = Field(None, description="預估交期(天)", example=50)
+    tier: int = Field(3, description="供應商層級 (1-3)", example=2)
 
 class SupplierRiskResponse(BaseModel):
     supplier_id: str
@@ -488,6 +489,7 @@ class SupplierRiskResponse(BaseModel):
     esg_score: float = Field(..., description="永續指標")
     pricing_score: float = Field(..., description="定價競爭力")
     osint_sources: list = Field([], description="公開來源情報")
+    reasons: list = Field([], description="模型決策解釋")
 
 @app.post("/api/predict/supplier-risk", response_model=SupplierRiskResponse)
 def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
@@ -545,46 +547,59 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         is_guardrail_blocked = False
         if osint_summary_msg == "找不到該公司相關資訊":
             # 直接標記為高風險，拒絕幽靈公司
-            risk_level = 'High'
+            risk_level = '需複核'
             risk_score = 100.0
+            reasons = []
             recommendation = "【嚴重警告】找不到該公司相關資訊。由於無法於公開網路核實其實體存在，系統直接判定為極高風險，請立即停止交易或進行深度人工徵信。"
         else:
-            input_data = pd.DataFrame([{
-                'Supplier ESG Score': float(esg_score),
-                'On Time Delivery': str(on_time),
-                'Days Late': float(days_late),
-                'PO Status': str(po_status)
-            }])
+            b = new_supplier_bundle
+            model = b["day0_model"]
+            feats = b["features_day0"]
+            row = {"tier": request.tier, "esg": float(esg_score)}
+            profile = pd.DataFrame([row])[feats]
             
-            pred_class = supplier_risk_model.predict(input_data)[0]
-            pred_proba = supplier_risk_model.predict_proba(input_data)[0]
+            proba = model.predict_proba(profile)[0]
+            clf = model.named_steps["clf"]
+            risk_order = b["risk_order"]     # ["核准","需複核"]
+            pred_pos = int(proba.argmax())
+            pred_label = int(clf.classes_[pred_pos])
             
-            classes = supplier_risk_model.named_steps['classifier'].classes_
-            proba_dict = dict(zip(classes, pred_proba))
+            risk_level = risk_order[pred_label]
+            pos_col = list(clf.classes_).index(1) if 1 in clf.classes_ else 0
+            risk_score = round(float(proba[pos_col] * 100), 1)
             
-            risk_score = proba_dict.get('High', 0) * 100 + proba_dict.get('Medium', 0) * 50
-            risk_score = round(risk_score, 1)
-            risk_level = pred_class
+            # 可解釋性: 標準化特徵值 × 係數
+            z = model.named_steps["scaler"].transform(profile)[0]
+            coef = clf.coef_
+            if coef.shape[0] == 1:
+                contrib_pos = z * coef[0]
+                contrib = contrib_pos if pred_label == 1 else -contrib_pos
+            else:
+                contrib = z * coef[pred_pos]
+            order = abs(contrib).argsort()[::-1]
+            
+            reasons = [{"feature": b["feature_labels"].get(feats[int(j)], feats[int(j)]),
+                        "value": round(float(profile.iloc[0, int(j)]), 4),
+                        "contribution": round(float(contrib[int(j)]), 3),
+                        "direction": "推向此判定" if contrib[int(j)] > 0 else "拉離此判定"} for j in order]
             
             # --- Rule-based Guardrails (合規與負面新聞強制阻斷機制) ---
             if "高度示警" in osint_summary_msg:
                 if 'auth_esg' in locals() and auth_esg:
                     osint_summary_msg += f"\n\n【ESG 權威豁免】已抓取國際真實 ESG 評等 ({auth_esg['rating']})，解除一般新聞負面字詞阻斷。"
                 else:
-                    risk_level = 'High'
+                    risk_level = '需複核'
                     risk_score = max(90.0, 100.0 - esg_score)  # 強制給予高風險分數
                     is_guardrail_blocked = True
                 
         if osint_summary_msg != "找不到該公司相關資訊":
-            if risk_level == 'High':
+            if risk_level == '需複核':
                 if is_guardrail_blocked:
                     recommendation = "【合規阻斷】該供應商存在嚴重負面新聞或高度爭議，依內控規範強制阻斷，不予核准。"
                 else:
-                    recommendation = "警告：模型預測該供應商具有高風險，請注意交期延誤與品質問題，建議尋求替代來源。"
-            elif risk_level == 'Medium':
-                recommendation = "風險中等，建議加強監控與合約約束。"
+                    recommendation = "警告：模型預測該供應商具有風險，建議尋求替代來源或啟動人工複核程序。"
             else:
-                recommendation = "風險評估為低，歷史紀錄良好，可持續合作。"
+                recommendation = "風險評估為低，歷史紀錄或基本面良好，可予以核准。"
                 
             if osint_summary_msg:
                 recommendation = osint_summary_msg + "\n\n模型建議: " + recommendation
@@ -659,7 +674,8 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
             delivery_score=round(d_score, 1),
             esg_score=round(float(esg_score), 1),
             pricing_score=round(p_score, 1),
-            osint_sources=osint_sources_list
+            osint_sources=osint_sources_list,
+            reasons=reasons
         )
     except Exception as e:
         print(f"Prediction Error: {e}")
@@ -1458,9 +1474,8 @@ def search_supplier(q: str):
             
         supplier_id = supplier_row['Supplier_ID']
         supplier_name = supplier_row['Supplier_Name']
-        risk_level = supplier_row['Supplier_Risk']
-        tier = supplier_row['Supplier_Tier']
-        esg_score = supplier_row['Supplier_ESG_Score']
+        tier = int(supplier_row['Supplier_Tier'])
+        esg_score = float(supplier_row['Supplier_ESG_Score'])
         preferred = supplier_row['Preferred_Supplier']
         
         # 2. Get Aggregated Metrics
@@ -1488,7 +1503,30 @@ def search_supplier(q: str):
         
         recent_pos = [dict(r) for r in cursor.fetchall()]
         
+        total_pos = int(metrics_row['total_pos'] or 0)
+        mav_count = int(metrics_row['maverick_count'] or 0)
+        single_count = 0
+        
+        cursor.execute("SELECT COUNT(*) as c FROM procurement_data WHERE Supplier_ID = ? AND Single_Source_Flag COLLATE NOCASE IN ('yes', 'true', '1')", (supplier_id,))
+        single_count_row = cursor.fetchone()
+        if single_count_row:
+            single_count = int(single_count_row['c'] or 0)
+            
+        mav_rate = mav_count / total_pos if total_pos > 0 else 0
+        single_rate = single_count / total_pos if total_pos > 0 else 0
+        
         conn.close()
+        
+        # Use new model review mode to calculate risk_level
+        b = new_supplier_bundle
+        model = b["review_model"]
+        feats = b["features_review"]
+        row = {"tier": tier, "esg": esg_score, "mav_rate": mav_rate, "single_rate": single_rate}
+        profile = pd.DataFrame([row])[feats]
+        proba = model.predict_proba(profile)[0]
+        clf = model.named_steps["clf"]
+        pred_label = int(clf.classes_[int(proba.argmax())])
+        risk_level = b["risk_order"][pred_label]
         
         return {
             "found": True,

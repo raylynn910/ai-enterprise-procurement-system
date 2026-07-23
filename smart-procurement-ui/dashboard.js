@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const supplierId = document.getElementById('ob-id').value || name;
                 const region = document.getElementById('ob-region').value;
                 const category = document.getElementById('ob-category').value;
+                const tier = parseInt(document.getElementById('ob-tier').value, 10);
                 
                 const response = await fetch('http://localhost:8000/api/predict/supplier-risk', {
                     method: 'POST',
@@ -90,7 +91,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         supplier_id: supplierId,
                         country: region,
                         category: category,
-                        lead_time_days: 30
+                        lead_time_days: 30,
+                        tier: tier
                     })
                 });
                 
@@ -118,16 +120,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 let rClass = "var(--success)";
                 let rBg = "rgba(16, 185, 129, 0.2)";
                 
-                if (risk === "High") {
-                    decision = "拒絕 (Reject)";
+                if (risk === "需複核") {
+                    decision = "人工覆核 (Review)";
                     dClass = "danger-text";
                     rClass = "var(--danger)";
                     rBg = "rgba(220, 38, 38, 0.2)";
-                } else if (risk === "Medium") {
-                    decision = "人工覆核 (Review)";
-                    dClass = "warning-text";
-                    rClass = "var(--warning)";
-                    rBg = "rgba(245, 158, 11, 0.2)";
                 }
 
                 document.getElementById('ob-res-decision').innerText = decision;
@@ -142,7 +139,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Toggle ERP Sync Button
                 const btnSyncErp = document.getElementById('btn-sync-erp');
                 if (btnSyncErp) {
-                    if (risk !== 'High') {
+                    if (risk === '核准') {
                         btnSyncErp.style.display = 'flex';
                         btnSyncErp.disabled = false;
                         btnSyncErp.innerHTML = '<i class="ph ph-cloud-arrow-up" style="font-size: 1.1rem;"></i> 匯入企業採購系統 (ERP)';
@@ -155,21 +152,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('ob-res-esgval').innerText = `${esgScore.toFixed(0)} / 100`;
                 document.getElementById('ob-res-esgbar').style.width = `${esgScore}%`;
                 
+                let recommendationHtml = result.recommendation || "";
+                if (result.reasons && result.reasons.length > 0) {
+                    recommendationHtml += "<br><br><strong>模型決策解釋:</strong><ul style='text-align: left; margin-top: 10px; font-size: 0.9rem;'>";
+                    result.reasons.forEach(r => {
+                        const arrow = r.contribution > 0 ? '↑' : '↓';
+                        recommendationHtml += `<li>${r.feature} (值=${r.value}): 貢獻=${r.contribution > 0 ? '+' : ''}${r.contribution} ${arrow} ${r.direction}</li>`;
+                    });
+                    recommendationHtml += "</ul>";
+                }
+                
                 // Update news based on recommendation
                 const newsContainer = document.getElementById('ob-log-news');
                 if (result.recommendation && result.recommendation.includes("Gemini")) {
-                    newsContainer.innerHTML = marked.parse(result.recommendation);
+                    newsContainer.innerHTML = marked.parse(recommendationHtml);
                     newsContainer.parentElement.style.border = "1px solid rgba(139, 92, 246, 0.5)"; // Purple glow
                     newsContainer.parentElement.style.boxShadow = "0 0 15px rgba(139, 92, 246, 0.2)";
                     newsContainer.parentElement.style.background = "linear-gradient(135deg, rgba(139,92,246,0.1), rgba(0,0,0,0))";
                     document.getElementById('ob-icon-news').className = "ph ph-sparkle";
                     document.getElementById('ob-icon-news').style.color = "#a78bfa";
                 } else {
-                    newsContainer.innerText = result.recommendation;
+                    newsContainer.innerHTML = recommendationHtml;
                     newsContainer.parentElement.style.border = "none";
                     newsContainer.parentElement.style.boxShadow = "none";
                     newsContainer.parentElement.style.background = "transparent";
-                    if (risk === "High") {
+                    if (risk === "需複核") {
                         document.getElementById('ob-icon-news').className = "ph ph-warning-circle";
                         document.getElementById('ob-icon-news').style.color = "var(--danger)";
                     } else {
@@ -324,14 +331,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
                 
                 // Update colors based on risk
-                if(risk === "High") {
+                if(risk === "需複核") {
                     options.stroke.colors = ['#ef4444'];
                     options.fill.colors = ['#ef4444'];
                     options.markers.strokeColors = '#ef4444';
-                } else if(risk === "Medium") {
-                    options.stroke.colors = ['#f59e0b'];
-                    options.fill.colors = ['#f59e0b'];
-                    options.markers.strokeColors = '#f59e0b';
                 }
 
                 window.obRadarChart = new ApexCharts(document.querySelector("#ob-radar-chart"), options);
@@ -348,67 +351,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 供應商風險政策評分 (new-supplier-risk, Day-0 / Review 雙模式)
-    const btnPolicyScore = document.getElementById('btn-policy-score');
-    if (btnPolicyScore) {
-        btnPolicyScore.addEventListener('click', async () => {
-            btnPolicyScore.disabled = true;
-            btnPolicyScore.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 評分中...';
-            try {
-                const tier = parseInt(document.getElementById('pol-tier').value, 10);
-                const esg = parseFloat(document.getElementById('pol-esg').value);
-                const mavStr = document.getElementById('pol-mav').value;
-                const singleStr = document.getElementById('pol-single').value;
-                const body = { tier, esg };
-                if (mavStr !== '' && singleStr !== '') {
-                    body.mav_rate = parseFloat(mavStr);
-                    body.single_rate = parseFloat(singleStr);
-                }
-                const res = await fetch('http://localhost:8000/api/predict/new-supplier-risk', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body)
-                });
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    throw new Error(errData.detail || `HTTP ${res.status}`);
-                }
-                const d = await res.json();
-
-                const levelColors = { '核准': 'var(--success)', '需複核': 'var(--danger)' };
-                const color = levelColors[d.risk_level] || 'var(--text-muted)';
-                const levelBadge = document.getElementById('policy-res-level');
-                levelBadge.innerText = `${d.mode === 'day0' ? 'Day-0' : 'Review'} 模式 — ${d.risk_level}`;
-                levelBadge.style.color = color;
-                levelBadge.style.borderColor = color;
-                levelBadge.style.background = 'transparent';
-                levelBadge.style.border = `1px solid ${color}`;
-
-                document.getElementById('policy-res-proba').innerText =
-                    Object.entries(d.probabilities).map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`).join('　');
-
-                const reasonsList = document.getElementById('policy-res-reasons');
-                reasonsList.innerHTML = '';
-                d.reasons.forEach(r => {
-                    const li = document.createElement('li');
-                    const arrow = r.contribution > 0 ? '↑' : '↓';
-                    li.innerText = `${r.feature} (值=${r.value})　貢獻=${r.contribution > 0 ? '+' : ''}${r.contribution}　${arrow} ${r.direction}`;
-                    reasonsList.appendChild(li);
-                });
-
-                document.getElementById('policy-res-caveat').innerText =
-                    `${d.caveat} (本模式留一驗證準確率: ${(d.loso_accuracy * 100).toFixed(0)}%)`;
-
-                document.getElementById('policy-result').style.display = 'block';
-            } catch (e) {
-                console.error(e);
-                alert(`評分失敗: ${e.message}`);
-            } finally {
-                btnPolicyScore.disabled = false;
-                btnPolicyScore.innerHTML = '<i class="ph ph-play"></i> 執行評分';
-            }
-        });
-    }
 
     // 供應商財務體質評估 (financial: 名稱 → Altman Z''-score 即時計算)
     const btnFinancialAssess = document.getElementById('btn-financial-assess');
@@ -1574,12 +1516,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Risk Badge
                     const rBadge = document.getElementById('sc-supplier-risk');
                     rBadge.innerText = `Risk: ${data.supplier.risk_level}`;
-                    if (data.supplier.risk_level === 'Low') {
-                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
-                    } else if (data.supplier.risk_level === 'High') {
+                    if (data.supplier.risk_level === '需複核') {
                         rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);';
                     } else {
-                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning);';
+                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
                     }
                     
                     // KPI Cards

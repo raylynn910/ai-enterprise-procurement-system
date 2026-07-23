@@ -435,6 +435,14 @@
                                     <option value="Raw Materials">原物料</option>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="ob-tier">預估供應商層級 (Tier)</label>
+                                <select id="ob-tier" class="form-control">
+                                    <option value="3" selected>Tier 3 (一般 / 非核心)</option>
+                                    <option value="2">Tier 2 (重要 / 具規模)</option>
+                                    <option value="1">Tier 1 (戰略 / 核心夥伴)</option>
+                                </select>
+                            </div>
                             <button type="button" class="btn btn-primary btn-block mt-4" id="btn-assess-supplier"><i class="ph ph-magnifying-glass"></i> 執行 AI 徵信掃描</button>
                         </form>
                     </div>
@@ -532,38 +540,6 @@
                     </div>
                 </div>
 
-                <!-- 新增: 供應商政策評分 (new-supplier-risk) -->
-                <div class="card glass-panel mt-4" style="padding:2rem;">
-                    <h3 style="margin-top:0;"><i class="ph ph-scales"></i> 供應商風險政策評分 (核准 / 需複核)</h3>
-                    <p style="color:var(--text-muted); font-size:0.9rem;">依公司既有風險政策判定「自動核准」或「送人工複核」(Day-0 入職 / 交易累積後 Review 兩模式)。</p>
-                    <div class="grid-3" style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem;">
-                        <div>
-                            <label>供應商層級 (Tier 1-3)</label>
-                            <input type="number" id="pol-tier" class="form-control" min="1" max="3" value="2">
-                        </div>
-                        <div>
-                            <label>ESG 評分 (0-100)</label>
-                            <input type="number" id="pol-esg" class="form-control" min="0" max="100" value="70">
-                        </div>
-                        <div>
-                            <label>脫軌採購率 (選填,0-1)</label>
-                            <input type="number" id="pol-mav" class="form-control" min="0" max="1" step="0.01" placeholder="留空=Day-0模式">
-                        </div>
-                        <div>
-                            <label>單一來源率 (選填,0-1)</label>
-                            <input type="number" id="pol-single" class="form-control" min="0" max="1" step="0.01" placeholder="留空=Day-0模式">
-                        </div>
-                    </div>
-                    <button type="button" class="btn btn-primary mt-3" id="btn-policy-score"><i class="ph ph-play"></i> 執行評分</button>
-                    <div id="policy-result" style="display:none; margin-top:1.5rem;">
-                        <span class="badge" id="policy-res-level" style="font-size:1.1rem; padding:0.5rem 1rem;">Risk: Low</span>
-                        <p style="margin:0.8rem 0 0.4rem; color:var(--text-muted);">機率分佈:</p>
-                        <div id="policy-res-proba" style="font-size:0.9rem;"></div>
-                        <p style="margin:0.8rem 0 0.4rem; color:var(--text-muted);">為什麼是這一級 (前 5 大影響因素):</p>
-                        <ul id="policy-res-reasons" style="font-size:0.9rem; line-height:1.8;"></ul>
-                        <p style="font-size:0.8rem; color:var(--text-muted);" id="policy-res-caveat"></p>
-                    </div>
-                </div>
 
                 <!-- 新增: 供應商財務體質 (financial-risk ML + Altman Z-score 即時) -->
                 <div class="card glass-panel mt-4" style="padding:2rem;">
