@@ -1,7 +1,30 @@
 // dashboard.js
 
+/**
+ * Generic API Fetch Utility
+ * @param {string} url - API Endpoint
+ * @param {object} options - Fetch options (method, headers, body)
+ * @returns {Promise<any>} JSON response
+ */
+async function fetchAPI(url, options = {}) {
+    try {
+        const response = await fetch(url, {
+            headers: { 'Content-Type': 'application/json', ...options.headers },
+            ...options
+        });
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('API Fetch failed:', error);
+        throw error;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadOverviewKPIs();
+    initDynamicDropdowns();
     // SPA Navigation Logic
     const navItems = document.querySelectorAll('.nav-item[data-target]');
     const views = document.querySelectorAll('.view-section');
@@ -195,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 osintContainer.appendChild(card);
                             });
                             osintModal.style.display = 'flex';
+                            setTimeout(() => osintModal.classList.add('show'), 10);
                         };
                     } else {
                         btnViewOsint.style.display = 'none';
@@ -202,12 +226,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     
                     if (closeOsintModal && osintModal) {
-                        closeOsintModal.onclick = function() {
-                            osintModal.style.display = 'none';
+                        const hideModal = () => {
+                            osintModal.classList.remove('show');
+                            setTimeout(() => { osintModal.style.display = 'none'; }, 300);
                         };
+                        closeOsintModal.onclick = hideModal;
                         osintModal.onclick = function(e) {
                             if (e.target === osintModal) {
-                                osintModal.style.display = 'none';
+                                hideModal();
                             }
                         };
                     }
@@ -445,11 +471,19 @@ document.addEventListener('DOMContentLoaded', () => {
             btnPredict.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 預測中...';
             btnPredict.disabled = true;
 
-            const supplier = document.getElementById('input-supplier').value;
-            const category = document.getElementById('input-contract') ? document.getElementById('input-contract').value : 'IT Software';
+            const supplier = document.getElementById('input-supplier') ? document.getElementById('input-supplier').value : 'SUP-001';
+            const category = document.getElementById('input-category') ? document.getElementById('input-category').value : 'IT Software';
+            const item_desc = document.getElementById('input-item-desc') ? document.getElementById('input-item-desc').value : '';
+            const contract_id = document.getElementById('input-contract') ? document.getElementById('input-contract').value : '';
             const quantity = parseInt(document.getElementById('input-quantity').value) || 100;
             const budget = parseFloat(document.getElementById('input-budget').value) || 0;
             const budgetUnitPrice = budget / quantity; // API expects unit price
+            
+            // Show loading status for AI explanation
+            const aiExplanationEl = document.getElementById('val-ai-explanation');
+            if (aiExplanationEl) {
+                aiExplanationEl.innerText = "正在分析中...";
+            }
             
             try {
                 // Call POST /api/predict/savings API
@@ -457,8 +491,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        supplier_id: supplier || 'SUP-001',
+                        supplier_id: supplier,
                         category: category,
+                        item_description: item_desc,
+                        contract_id: contract_id,
                         quantity: quantity,
                         budget_price: budgetUnitPrice
                     })
@@ -504,6 +540,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 
+                // Update AI Explanation
+                const aiExplanationEl = document.getElementById('val-ai-explanation');
+                if (aiExplanationEl) {
+                    aiExplanationEl.innerText = result.ai_explanation || "無解釋資訊。";
+                }
+                
+                // Update Disputed alert badge
+                const disputedContainer = document.getElementById('disputed-alert-container');
+                if (disputedContainer) {
+                    if (result.is_disputed) {
+                        disputedContainer.innerHTML = '<div class="alert alert-danger p-2 rounded" style="background: rgba(255, 68, 68, 0.1); border: 1px solid rgba(255, 68, 68, 0.3);"><i class="ph ph-warning-circle text-danger"></i> <strong>高風險警告：</strong> AI 預測此訂單極可能產生爭議 (Disputed Invoice/PO)，請再次核對合約與供應商條款。</div>';
+                    } else {
+                        disputedContainer.innerHTML = '<div class="alert alert-success p-2 rounded" style="background: rgba(0, 200, 83, 0.1); border: 1px solid rgba(0, 200, 83, 0.3);"><i class="ph ph-check-circle text-success"></i> <strong>交易健康：</strong> 未偵測到明顯爭議風險。</div>';
+                    }
+                }
+
                 // Show result panel
                 predictionResult.style.display = 'block';
                 
@@ -522,6 +574,21 @@ document.addEventListener('DOMContentLoaded', () => {
     let reportPieChartInstance = null;
     let reportBarChartInstance = null;
 
+    const reportRangeSelect = document.getElementById('report-range-select');
+    const reportCustomRange = document.getElementById('report-custom-range');
+    const reportStartDate = document.getElementById('report-start-date');
+    const reportEndDate = document.getElementById('report-end-date');
+
+    if (reportRangeSelect) {
+        reportRangeSelect.addEventListener('change', (e) => {
+            if (e.target.value === 'custom') {
+                reportCustomRange.style.display = 'flex';
+            } else {
+                reportCustomRange.style.display = 'none';
+            }
+        });
+    }
+
     document.getElementById('btn-weekly-report')?.addEventListener('click', async () => {
         const btn = document.getElementById('btn-weekly-report');
         const loadingStatus = document.getElementById('report-loading-status');
@@ -530,10 +597,38 @@ document.addEventListener('DOMContentLoaded', () => {
         
         btn.disabled = true;
         loadingStatus.style.display = 'inline-block';
+
+        let dateQuery = '';
+        if (reportRangeSelect) {
+            const rangeType = reportRangeSelect.value;
+            let start = new Date();
+            let end = new Date();
+            
+            if (rangeType === 'this_week') {
+                start.setDate(end.getDate() - 7);
+            } else if (rangeType === 'last_week') {
+                start.setDate(end.getDate() - 14);
+                end.setDate(end.getDate() - 7);
+            } else if (rangeType === 'last_30_days') {
+                start.setDate(end.getDate() - 30);
+            } else if (rangeType === 'custom') {
+                if (reportStartDate.value && reportEndDate.value) {
+                    start = new Date(reportStartDate.value);
+                    end = new Date(reportEndDate.value);
+                } else {
+                    alert('請選擇完整的自訂日期區間');
+                    btn.disabled = false;
+                    loadingStatus.style.display = 'none';
+                    return;
+                }
+            }
+            const formatDate = (d) => d.toISOString().split('T')[0];
+            dateQuery = `&start_date=${formatDate(start)}&end_date=${formatDate(end)}`;
+        }
         
         try {
             // 第 1 步：先拉取圖表數據 (skip_gemini=true)，讓畫面瞬間渲染，不用等 AI 生成
-            const resFast = await fetch('http://localhost:8000/api/reports/weekly?skip_gemini=true');
+            const resFast = await fetch(`http://localhost:8000/api/reports/weekly?skip_gemini=true${dateQuery}`);
             if (!resFast.ok) throw new Error('API fetching failed');
             const resultFast = await resFast.json();
             
@@ -610,7 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // 第 2 步：背景拉取完整的 Gemini 報表
-            const resFull = await fetch('http://localhost:8000/api/reports/weekly');
+            const resFull = await fetch(`http://localhost:8000/api/reports/weekly?skip_gemini=false${dateQuery}`);
             if (resFull.ok) {
                 const resultFull = await resFull.json();
                 document.getElementById('val-report-content').innerHTML = marked.parse(resultFull.markdown);
@@ -893,19 +988,18 @@ async function fetchAndRenderSuppliers() {
             card.style = `background: ${bgGradient}; ${borderStyle} ${shadowStyle} border-radius: 12px; padding: 1.5rem; display: flex; align-items: center; justify-content: space-between;`;
             
             card.innerHTML = `
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <div style="width: 50px; height: 50px; border-radius: 50%; background: ${isTop1 ? '#ffd700' : '#4a5568'}; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'};">
+                <div style="display: flex; align-items: center; gap: 1.2rem;">
+                    <div style="width: 55px; height: 55px; border-radius: 50%; background: ${isTop1 ? 'linear-gradient(135deg, #ffd700, #f59e0b)' : 'linear-gradient(135deg, #4a5568, #2d3748)'}; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: bold; color: ${isTop1 ? '#000' : '#fff'}; box-shadow: ${isTop1 ? '0 0 15px rgba(255, 215, 0, 0.4)' : 'none'};">
                         ${isTop1 ? '<i class="ph ph-crown"></i>' : `#${sup.rank}`}
                     </div>
                     <div>
-                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.5rem' : '1.25rem'}; color: ${isTop1 ? '#ffd700' : '#fff'};">${sup.name}</h3>
-                        <p style="margin: 0.25rem 0 0 0; color: #a0aec0; font-size: 0.9rem;">${sup.country}</p>
+                        <h3 style="margin: 0; font-size: ${isTop1 ? '1.6rem' : '1.3rem'}; font-weight: 700; color: ${isTop1 ? '#ffd700' : '#f8fafc'}; letter-spacing: 0.5px;">${sup.name}</h3>
+                        <p style="margin: 0.3rem 0 0 0; color: #94a3b8; font-size: 0.95rem; display: flex; align-items: center; gap: 0.3rem;"><i class="ph ph-map-pin"></i> ${sup.country}</p>
                     </div>
                 </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.25rem; font-weight: bold; color: #4ade80;">${sup.score_text}</div>
-                    <div style="font-size: 0.85rem; color: #a0aec0; margin-top: 0.25rem;"><i class="ph ph-info"></i> ${sup.reason}</div>
-                    <button class="btn btn-primary btn-sm" style="margin-top: 0.5rem; padding: 0.25rem 1rem;">選擇</button>
+                <div style="text-align: right; display: flex; flex-direction: column; justify-content: center; align-items: flex-end;">
+                    <div style="font-size: 1.4rem; font-weight: 800; color: #4ade80; text-shadow: 0 0 10px rgba(74, 222, 128, 0.3); letter-spacing: 0.5px;">${sup.score_text}</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 0.4rem; max-width: 220px; line-height: 1.4;"><i class="ph ph-lightbulb" style="color: #fbbf24; font-size: 1rem;"></i> ${sup.reason}</div>
                 </div>
             `;
             podiumList.appendChild(card);
@@ -947,6 +1041,15 @@ async function fetchAndRenderSuppliers() {
                     opacity: 0.5
                 }
             },
+            plotOptions: {
+                radar: {
+                    size: 95, // Reduce size slightly to make room for long labels
+                    polygons: {
+                        strokeColors: 'rgba(255,255,255,0.1)',
+                        connectorColors: 'rgba(255,255,255,0.1)'
+                    }
+                }
+            },
             colors: customColors,
             labels: ['Cost Savings Score', 'On-Time Delivery', 'ESG Sustainability'],
             stroke: { width: 3, curve: 'smooth' },
@@ -954,7 +1057,7 @@ async function fetchAndRenderSuppliers() {
             markers: { size: 5, hover: { size: 8 } },
             xaxis: {
                 labels: {
-                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '12px', fontFamily: 'Inter', fontWeight: 600 }
+                    style: { colors: ['#00f0ff', '#39ff14', '#ffb300'], fontSize: '11px', fontFamily: 'Inter', fontWeight: 600 }
                 }
             },
             yaxis: { show: false, min: 0, max: 100 },
@@ -962,7 +1065,8 @@ async function fetchAndRenderSuppliers() {
             legend: { 
                 position: 'bottom', 
                 labels: { colors: '#fff' },
-                markers: { radius: 12 }
+                markers: { radius: 12 },
+                offsetY: 10
             }
         };
 
@@ -1153,42 +1257,219 @@ async function loadTrendChart() {
 
 document.addEventListener('DOMContentLoaded', () => {
     loadTrendChart();
-    fetchRiskOrders();
+    initAtRiskOrdersView();
 });
 
-// --- Team 1 Risk Model Integration ---
-async function fetchRiskOrders() {
+// ============================================================
+// 採購端 - 有問題的 PO 單追蹤清單
+// ============================================================
+const RiskOrders = {
+    state: {
+        startDate: '',
+        endDate: '',
+        page: 1,
+        pageSize: 50,
+        sortBy: 'po_date',
+        sortOrder: 'desc',
+        total: 0,
+        totalPages: 0,
+    },
+    endpoint: 'http://localhost:8000/api/procurement/at-risk-orders',
+};
+
+// PO 狀態顯示樣式（灰=關閉/取消類、warning=待處理、success=正常）
+function poStatusClass(status) {
+    const s = String(status || '').trim().toLowerCase();
+    if (s === 'open') return 'success';
+    if (s === 'pending' || s === 'on hold') return 'warning';
+    if (s === 'closed') return 'muted';
+    return 'muted';
+}
+function riskFieldClass(rules, prefix) {
+    return rules.some(r => r.code.startsWith(prefix)) ? 'danger' : '';
+}
+
+async function fetchAtRiskOrders() {
+    const s = RiskOrders.state;
+    const params = new URLSearchParams({
+        page: s.page,
+        page_size: s.pageSize,
+        sort_by: s.sortBy,
+        sort_order: s.sortOrder,
+    });
+    if (s.startDate) params.append('start_date', s.startDate);
+    if (s.endDate) params.append('end_date', s.endDate);
+
+    const tbody = document.getElementById('risk-table-body');
+    tbody.innerHTML = '<tr><td colspan="13" class="text-center">載入中...</td></tr>';
+
     try {
-        const response = await fetch('http://localhost:8000/api/risk/orders');
-        const result = await response.json();
-        
-        if (result.status === 'success') {
-            const tbody = document.getElementById('risk-table-body');
-            tbody.innerHTML = ''; // 清空
-            
-            if (result.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center">目前無高風險訂單。</td></tr>';
-                return;
-            }
-            
-            result.data.forEach(order => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><strong>${order.po_number}</strong></td>
-                    <td>${order.supplier_name}</td>
-                    <td class="danger-text">${order.savings_pct}</td>
-                    <td><span class="status-tag ${order.maverick === 'Yes' ? 'danger' : 'success'}">${order.maverick}</span></td>
-                    <td><span class="status-tag ${order.single_source === 'Yes' ? 'danger' : 'success'}">${order.single_source}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-secondary" onclick="alert('【系統提示】\\n模型判定為高風險。建議審查合約。')"><i class="ph ph-handshake"></i> 審查合約</button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
+        const res = await fetch(`${RiskOrders.endpoint}?${params.toString()}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ detail: res.statusText }));
+            tbody.innerHTML = `<tr><td colspan="13" class="text-center danger-text">錯誤：${err.detail || res.statusText}</td></tr>`;
+            return;
         }
+        const result = await res.json();
+        s.total = result.total;
+        s.totalPages = result.total_pages;
+
+        document.getElementById('risk-total-count').textContent = result.total.toLocaleString();
+        renderRiskTable(result.data);
+        renderRiskPagination();
+        updateSortIcons();
     } catch (e) {
-        console.error('Failed to fetch risk orders:', e);
+        console.error('Failed to fetch at-risk orders:', e);
+        tbody.innerHTML = `<tr><td colspan="13" class="text-center danger-text">載入失敗：${e.message}</td></tr>`;
     }
+}
+
+function renderRiskTable(rows) {
+    const tbody = document.getElementById('risk-table-body');
+    tbody.innerHTML = '';
+    if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="13" class="text-center">此區間無符合條件的風險訂單。</td></tr>';
+        return;
+    }
+    for (const o of rows) {
+        const rules = o.matched_rules || [];
+        const chips = rules.map(r => `<span class="risk-chip risk-chip-${r.level}" title="${r.code}">${r.label}</span>`).join('');
+
+        const invClass = riskFieldClass(rules, 'invoice_');
+        const payClass = riskFieldClass(rules, 'payment_');
+        const matchClass = riskFieldClass(rules, 'match_');
+        const mavClass = riskFieldClass(rules, 'maverick');
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${escapeHtml(o.po_number)}</strong></td>
+            <td>${escapeHtml(o.po_date)}</td>
+            <td><span class="status-tag ${poStatusClass(o.po_status)}">${escapeHtml(o.po_status)}</span></td>
+            <td>${escapeHtml(o.supplier_id)}</td>
+            <td>${escapeHtml(o.supplier_name)}</td>
+            <td>${escapeHtml(o.item_description)}</td>
+            <td class="text-right">${escapeHtml(o.quantity)}</td>
+            <td class="text-right">${escapeHtml(o.savings_pct)}%</td>
+            <td class="${invClass ? 'danger-text' : ''}">${escapeHtml(o.invoice_status)}</td>
+            <td class="${payClass ? 'danger-text' : ''}">${escapeHtml(o.payment_status)}</td>
+            <td class="${matchClass ? 'danger-text' : ''}">${escapeHtml(o.invoice_match_type)}</td>
+            <td class="${mavClass ? 'danger-text' : ''}">${escapeHtml(o.maverick_spend)}</td>
+            <td><div class="risk-chip-group">${chips}</div></td>
+        `;
+        tbody.appendChild(tr);
+    }
+}
+
+function renderRiskPagination() {
+    const s = RiskOrders.state;
+    const info = document.getElementById('risk-page-info');
+    const controls = document.getElementById('risk-page-controls');
+    if (s.total === 0) {
+        info.textContent = '無資料';
+        controls.innerHTML = '';
+        return;
+    }
+    const from = (s.page - 1) * s.pageSize + 1;
+    const to = Math.min(s.page * s.pageSize, s.total);
+    info.textContent = `顯示第 ${from} - ${to} 筆 / 共 ${s.total.toLocaleString()} 筆（第 ${s.page} / ${s.totalPages} 頁）`;
+
+    const pages = buildPageList(s.page, s.totalPages);
+    let html = `<button class="page-btn" data-page="prev" ${s.page === 1 ? 'disabled' : ''}>‹ 上一頁</button>`;
+    for (const p of pages) {
+        if (p === '...') {
+            html += `<span class="page-ellipsis">…</span>`;
+        } else {
+            html += `<button class="page-btn ${p === s.page ? 'active' : ''}" data-page="${p}">${p}</button>`;
+        }
+    }
+    html += `<button class="page-btn" data-page="next" ${s.page === s.totalPages ? 'disabled' : ''}>下一頁 ›</button>`;
+    controls.innerHTML = html;
+
+    controls.querySelectorAll('.page-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const raw = btn.dataset.page;
+            if (raw === 'prev' && s.page > 1) s.page--;
+            else if (raw === 'next' && s.page < s.totalPages) s.page++;
+            else if (!isNaN(parseInt(raw))) s.page = parseInt(raw);
+            else return;
+            fetchAtRiskOrders();
+        });
+    });
+}
+
+// 依當前頁與總頁數，產生形如 [1, '...', 4, 5, 6, '...', 20] 的頁碼列
+function buildPageList(current, total) {
+    if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+    const pages = [1];
+    const start = Math.max(2, current - 2);
+    const end = Math.min(total - 1, current + 2);
+    if (start > 2) pages.push('...');
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push('...');
+    pages.push(total);
+    return pages;
+}
+
+function updateSortIcons() {
+    const s = RiskOrders.state;
+    document.querySelectorAll('#risk-table th.sortable').forEach(th => {
+        const icon = th.querySelector('.sort-icon');
+        if (!icon) return;
+        if (th.dataset.sort === s.sortBy) {
+            icon.textContent = s.sortOrder === 'asc' ? ' ▲' : ' ▼';
+            th.classList.add('sort-active');
+        } else {
+            icon.textContent = '';
+            th.classList.remove('sort-active');
+        }
+    });
+}
+
+function escapeHtml(v) {
+    if (v === null || v === undefined) return '';
+    return String(v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function initAtRiskOrdersView() {
+    // 排序點擊
+    document.querySelectorAll('#risk-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            const s = RiskOrders.state;
+            if (s.sortBy === col) {
+                s.sortOrder = s.sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                s.sortBy = col;
+                s.sortOrder = 'desc';
+            }
+            s.page = 1;
+            fetchAtRiskOrders();
+        });
+    });
+
+    // 日期篩選
+    document.getElementById('risk-query-btn').addEventListener('click', () => {
+        const s = RiskOrders.state;
+        s.startDate = document.getElementById('risk-start-date').value;
+        s.endDate = document.getElementById('risk-end-date').value;
+        s.page = 1;
+        fetchAtRiskOrders();
+    });
+    document.getElementById('risk-reset-btn').addEventListener('click', () => {
+        document.getElementById('risk-start-date').value = '';
+        document.getElementById('risk-end-date').value = '';
+        const s = RiskOrders.state;
+        s.startDate = '';
+        s.endDate = '';
+        s.page = 1;
+        s.sortBy = 'po_date';
+        s.sortOrder = 'desc';
+        fetchAtRiskOrders();
+    });
+
+    fetchAtRiskOrders();
 }
 
 
@@ -1318,28 +1599,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
                     
                     // Recent POs
-                    const tbody = document.getElementById('sc-po-tbody');
-                    tbody.innerHTML = '';
-                    
-                    if (data.recent_pos && data.recent_pos.length > 0) {
-                        data.recent_pos.forEach(po => {
-                            let mavClass = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'danger-text' : 'success-text';
-                            let mavText = (po.Maverick_Spend.toLowerCase() === 'yes' || po.Maverick_Spend === 'true' || po.Maverick_Spend == 1) ? 'Yes' : 'No';
-                            
-                            const tr = document.createElement('tr');
-                            tr.innerHTML = `
-                                <td>${po.PO_ID}</td>
-                                <td>${po.PO_Date}</td>
-                                <td>${po.Category}</td>
-                                <td>$${Number(po.Spend).toLocaleString()}</td>
-                                <td class="${mavClass}">${mavText}</td>
-                                <td>${po.PO_Status}</td>
-                            `;
-                            tbody.appendChild(tr);
-                        });
-                    } else {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
-                    }
+                    window.SupplierPOsState.data = data.recent_pos || [];
+                    window.SupplierPOsState.sortBy = 'date';
+                    window.SupplierPOsState.sortOrder = 'desc';
+                    renderSupplierPOs();
                     
                 } catch (e) {
                     console.error('Search failed:', e);
@@ -1348,6 +1611,93 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+});
+
+// --- Supplier POs Sorting Logic ---
+window.SupplierPOsState = {
+    data: [],
+    sortBy: 'date',
+    sortOrder: 'desc'
+};
+
+function renderSupplierPOs() {
+    const tbody = document.getElementById('sc-po-tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    
+    let pos = [...window.SupplierPOsState.data];
+    const s = window.SupplierPOsState;
+    
+    if (pos.length > 0) {
+        pos.sort((a, b) => {
+            let valA, valB;
+            switch(s.sortBy) {
+                case 'id': valA = String(a.PO_ID || ''); valB = String(b.PO_ID || ''); break;
+                case 'date': valA = String(a.PO_Date || ''); valB = String(b.PO_Date || ''); break;
+                case 'category': valA = String(a.Category || ''); valB = String(b.Category || ''); break;
+                case 'spend': valA = Number(a.Spend) || 0; valB = Number(b.Spend) || 0; break;
+                case 'maverick': 
+                    const mA = String(a.Maverick_Spend || '').toLowerCase();
+                    const mB = String(b.Maverick_Spend || '').toLowerCase();
+                    valA = (mA === 'yes' || mA === 'true' || mA === '1') ? 1 : 0; 
+                    valB = (mB === 'yes' || mB === 'true' || mB === '1') ? 1 : 0; 
+                    break;
+                case 'status': valA = String(a.PO_Status || ''); valB = String(b.PO_Status || ''); break;
+                default: valA = String(a.PO_Date || ''); valB = String(b.PO_Date || ''); break;
+            }
+            if (valA < valB) return s.sortOrder === 'asc' ? -1 : 1;
+            if (valA > valB) return s.sortOrder === 'asc' ? 1 : -1;
+            return 0;
+        });
+        
+        pos.forEach(po => {
+            const mStr = String(po.Maverick_Spend || '').toLowerCase();
+            let mavClass = (mStr === 'yes' || mStr === 'true' || mStr === '1') ? 'danger-text' : 'success-text';
+            let mavText = (mStr === 'yes' || mStr === 'true' || mStr === '1') ? 'Yes' : 'No';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${po.PO_ID}</td>
+                <td>${po.PO_Date}</td>
+                <td>${po.Category}</td>
+                <td>$${Number(po.Spend || 0).toLocaleString()}</td>
+                <td class="${mavClass}">${mavText}</td>
+                <td>${po.PO_Status}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } else {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 2rem;">此供應商尚無歷史採購紀錄。</td></tr>';
+    }
+    
+    // Update sort icons
+    document.querySelectorAll('#view-supplier .sortable').forEach(th => {
+        const icon = th.querySelector('i');
+        if (!icon) return;
+        if (th.dataset.sort === s.sortBy) {
+            icon.className = s.sortOrder === 'asc' ? 'ph ph-sort-ascending' : 'ph ph-sort-descending';
+            icon.style.color = 'var(--primary)';
+        } else {
+            icon.className = 'ph ph-arrows-down-up';
+            icon.style.color = 'var(--text-muted)';
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('#view-supplier .sortable').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.sort;
+            const s = window.SupplierPOsState;
+            if (s.sortBy === col) {
+                s.sortOrder = s.sortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                s.sortBy = col;
+                s.sortOrder = 'desc';
+            }
+            renderSupplierPOs();
+        });
+    });
 });
 
 
@@ -1429,3 +1779,180 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
+
+// ==========================================
+// Dynamic Cascading Dropdowns for Prediction
+// ==========================================
+let globalOptionData = null;
+
+async function initDynamicDropdowns() {
+    const categorySelect = document.getElementById('input-category');
+    if (!categorySelect) return;
+    
+    try {
+        const response = await fetch('http://localhost:8000/api/options');
+        if (!response.ok) throw new Error("Failed to fetch options");
+        const result = await response.json();
+        if (result.status === "success") {
+            globalOptionData = result.data;
+            populateCategoryDropdown();
+            
+            // Add event listener for category change
+            categorySelect.addEventListener('change', () => {
+                updateDependentDropdowns(categorySelect.value);
+            });
+            
+            // Initial population
+            if (categorySelect.options.length > 0) {
+                updateDependentDropdowns(categorySelect.value);
+            }
+        }
+    } catch (e) {
+        console.error("Error loading dynamic options:", e);
+    }
+}
+
+function populateCategoryDropdown() {
+    const categorySelect = document.getElementById('input-category');
+    if (!categorySelect || !globalOptionData) return;
+    
+    // Save current selection to restore if possible
+    const currentVal = categorySelect.value;
+    categorySelect.innerHTML = '';
+    
+    const categories = Object.keys(globalOptionData).sort();
+    categories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = cat;
+        categorySelect.appendChild(option);
+    });
+    
+    if (categories.includes(currentVal)) {
+        categorySelect.value = currentVal;
+    } else if (categories.length > 0) {
+        categorySelect.value = categories[0];
+    }
+}
+
+function updateDependentDropdowns(category) {
+    if (!globalOptionData || !globalOptionData[category]) return;
+    
+    const data = globalOptionData[category];
+    
+    const itemSelect = document.getElementById('input-item-desc');
+    const supplierSelect = document.getElementById('input-supplier');
+    const contractSelect = document.getElementById('input-contract');
+    
+    if (itemSelect) {
+        itemSelect.innerHTML = '';
+        data.items.forEach(item => {
+            const opt = document.createElement('option');
+            opt.value = item;
+            opt.textContent = item;
+            itemSelect.appendChild(opt);
+        });
+    }
+    
+    if (supplierSelect) {
+        supplierSelect.innerHTML = '';
+        data.suppliers.forEach(sup => {
+            const opt = document.createElement('option');
+            opt.value = sup.id; // API expects supplier_id
+            opt.textContent = sup.name;
+            supplierSelect.appendChild(opt);
+        });
+    }
+    
+    if (contractSelect) {
+        contractSelect.innerHTML = '';
+        data.contracts.forEach(contract => {
+            const opt = document.createElement('option');
+            // the contract value could just be the ID, let's parse if we added format 'ID (Type)'
+            const contractId = contract.split(" ")[0];
+            opt.value = contractId;
+            opt.textContent = contract;
+            contractSelect.appendChild(opt);
+        });
+    }
+}
+
+// Settings Drawer Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const settingsBtn = document.getElementById('btn-settings');
+    const settingsDrawer = document.getElementById('settings-drawer');
+    const closeSettingsBtn = document.getElementById('btn-close-settings');
+    const overlay = document.getElementById('drawer-overlay');
+
+    const openSettings = () => {
+        if (settingsDrawer && overlay) {
+            overlay.style.display = 'block';
+            setTimeout(() => {
+                overlay.style.opacity = '1';
+                settingsDrawer.style.display = 'block';
+                setTimeout(() => {
+                    settingsDrawer.style.right = '0';
+                }, 10);
+            }, 10);
+        }
+    };
+
+    const closeSettings = () => {
+        if (settingsDrawer && overlay) {
+            settingsDrawer.style.right = '-400px';
+            overlay.style.opacity = '0';
+            setTimeout(() => {
+                overlay.style.display = 'none';
+                settingsDrawer.style.display = 'none';
+            }, 300);
+        }
+    };
+
+    if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
+    if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', closeSettings);
+    // Since overlay is shared with other drawers, we only add a generic close if it's visible for settings
+    if (overlay) {
+        overlay.addEventListener('click', () => {
+            if (settingsDrawer && settingsDrawer.style.right === '0px') {
+                closeSettings();
+            }
+        });
+    }
+
+    // Settings Functionality
+    const toggleLightMode = document.getElementById('toggle-light-mode');
+    if (toggleLightMode) {
+        // Load saved preference
+        if (localStorage.getItem('light-mode') === 'true') {
+            document.body.classList.add('light-mode');
+            toggleLightMode.checked = true;
+        }
+
+        toggleLightMode.addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.body.classList.add('light-mode');
+                localStorage.setItem('light-mode', 'true');
+            } else {
+                document.body.classList.remove('light-mode');
+                localStorage.setItem('light-mode', 'false');
+            }
+        });
+    }
+
+    // Dummy persistence for alerts
+    const toggleAlertRisk = document.getElementById('toggle-alert-risk');
+    const toggleAlertPrice = document.getElementById('toggle-alert-price');
+    
+    [toggleAlertRisk, toggleAlertPrice].forEach(toggle => {
+        if (toggle) {
+            const saved = localStorage.getItem(toggle.id);
+            if (saved !== null) {
+                toggle.checked = saved === 'true';
+            }
+            toggle.addEventListener('change', (e) => {
+                localStorage.setItem(toggle.id, e.target.checked);
+            });
+        }
+    });
+});
+

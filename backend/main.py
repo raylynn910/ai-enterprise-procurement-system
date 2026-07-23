@@ -20,10 +20,9 @@ try:
         cls_refiner = pickle.load(f)
     with open(os.path.join(BASE_DIR, "models", "le_dict.pkl"), "rb") as f:
         le_dict = pickle.load(f)
+        
     with open(os.path.join(BASE_DIR, "models", "supplier_risk_model.pkl"), "rb") as f:
         supplier_risk_model = pickle.load(f)
-        
-    # Team 1 Risk Model
     with open(os.path.join(BASE_DIR, "models", "risk_rf_model.pkl"), "rb") as f:
         risk_rf_model = pickle.load(f)
     with open(os.path.join(BASE_DIR, "models", "risk_scaler.pkl"), "rb") as f:
@@ -31,7 +30,13 @@ try:
     with open(os.path.join(BASE_DIR, "models", "risk_features.pkl"), "rb") as f:
         risk_features = pickle.load(f)
         
+    with open(os.path.join(BASE_DIR, "models", "dispute_model.pkl"), "rb") as f:
+        dispute_model = pickle.load(f)
+    with open(os.path.join(BASE_DIR, "models", "dispute_encoders.pkl"), "rb") as f:
+        dispute_encoders = pickle.load(f)
+        
     ML_MODELS_LOADED = True
+    print("All ML models loaded successfully.")
 except Exception as e:
     print(f"Warning: ML models failed to load. Using mock fallback. Error: {e}")
     ML_MODELS_LOADED = False
@@ -142,6 +147,58 @@ def get_procurements(
         }
     }
 
+@app.get("/api/options")
+def get_options():
+    """
+    動態取得 Category, Item_Description, Supplier_Name, Contract 的連動選項
+    """
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(status_code=500, detail="Database not found.")
+        
+    conn = get_db_connection()
+    query = '''
+        SELECT DISTINCT Category, Item_Description, Supplier_ID, Supplier_Name, Contract_ID, Contract_Type 
+        FROM procurement_data
+        WHERE Category IS NOT NULL
+    '''
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    
+    mapping = {}
+    for _, row in df.iterrows():
+        cat = row['Category']
+        if pd.isna(cat) or cat == "":
+            continue
+            
+        if cat not in mapping:
+            mapping[cat] = {'items': set(), 'suppliers': set(), 'contracts': set()}
+            
+        item = row['Item_Description']
+        if pd.notna(item) and item != "":
+            mapping[cat]['items'].add(item)
+            
+        supp_id = row['Supplier_ID']
+        supp_name = row['Supplier_Name']
+        if pd.notna(supp_id) and pd.notna(supp_name) and supp_id != "":
+            mapping[cat]['suppliers'].add((supp_id, supp_name))
+            
+        contract_id = row['Contract_ID']
+        contract_type = row['Contract_Type']
+        if pd.notna(contract_id) and contract_id != "":
+            c_type = f" ({contract_type})" if pd.notna(contract_type) else ""
+            mapping[cat]['contracts'].add(f"{contract_id}{c_type}")
+            
+    # Convert sets to sorted lists
+    result = {}
+    for cat, data in mapping.items():
+        result[cat] = {
+            "items": sorted(list(data["items"])),
+            "suppliers": [{"id": s[0], "name": s[1]} for s in sorted(list(data["suppliers"]), key=lambda x: x[1])],
+            "contracts": sorted(list(data["contracts"]))
+        }
+        
+    return {"status": "success", "data": result}
+
 @app.get("/api/risk/orders")
 def get_risk_orders():
     """
@@ -227,6 +284,192 @@ def get_risk_orders():
         print(f"Error in risk orders: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ----- 採購端「有問題的 PO 單」追蹤清單 -----
+# 規則：只要命中下列任一條件即為風險訂單（Cancelled 訂單一律排除）
+#   1. Payment Status ∈ {Overdue, Pending, On Hold}
+#   2. Invoice Status ∈ {Overdue, Pending, Disputed}
+#   3. Invoice Match Type ∈ {2-Way Match, No Match}
+#   4. Maverick Spend = Yes
+
+_ALLOWED_SORT_COLUMNS = {
+    "po_date", "po_number", "po_status", "supplier_id", "supplier_name",
+    "item_description", "quantity", "savings_pct",
+    "invoice_status", "payment_status", "invoice_match_type", "maverick_spend",
+}
+
+def _parse_dmy(date_str):
+    """CSV 內 PO Date 為 dd/mm/yyyy，轉為 pd.Timestamp；失敗回 NaT。"""
+    return pd.to_datetime(date_str, format="%d/%m/%Y", errors="coerce")
+
+def _format_ymd_slash(ts):
+    """回傳台灣常用 yyyy/mm/dd；NaT 回空字串。"""
+    if pd.isna(ts):
+        return ""
+    return ts.strftime("%Y/%m/%d")
+
+def _compute_matched_rules(row):
+    rules = []
+    pay = str(row.get("Payment_Status", "")).strip().lower()
+    if pay in {"overdue", "pending", "on hold"}:
+        rules.append({
+            "code": f"payment_{pay.replace(' ', '_')}",
+            "label": {"overdue": "付款逾期", "pending": "付款待處理", "on hold": "付款凍結"}[pay],
+            "level": "danger" if pay == "overdue" else "warning",
+        })
+    inv = str(row.get("Invoice_Status", "")).strip().lower()
+    if inv in {"overdue", "pending", "disputed"}:
+        rules.append({
+            "code": f"invoice_{inv}",
+            "label": {"overdue": "發票逾期", "pending": "發票待處理", "disputed": "發票爭議"}[inv],
+            "level": "danger" if inv in {"overdue", "disputed"} else "warning",
+        })
+    match_type = str(row.get("Invoice_Match_Type", "")).strip()
+    match_lower = match_type.lower()
+    if match_lower == "2-way match":
+        rules.append({"code": "match_2way", "label": "2-Way Match", "level": "warning"})
+    elif match_lower == "no match":
+        rules.append({"code": "match_none", "label": "無核銷", "level": "danger"})
+    if str(row.get("Maverick_Spend", "")).strip().lower() == "yes":
+        rules.append({"code": "maverick", "label": "越權採購", "level": "danger"})
+    return rules
+
+
+@app.get("/api/procurement/at-risk-orders")
+def get_at_risk_orders(
+    start_date: Optional[str] = Query(None, description="起始日期 yyyy-mm-dd（含）"),
+    end_date: Optional[str] = Query(None, description="結束日期 yyyy-mm-dd（含）"),
+    page: int = Query(1, ge=1, description="頁碼（1 起算）"),
+    page_size: int = Query(50, ge=1, le=50, description="每頁筆數，最多 50"),
+    sort_by: str = Query("po_date", description="排序欄位"),
+    sort_order: str = Query("desc", description="asc / desc"),
+):
+    """
+    給採購端追蹤「有問題的 PO 單」清單。命中任一風險規則即回傳；Cancelled 訂單排除。
+    支援日期區間篩選、欄位排序、分頁（每頁最多 50 筆）。
+    """
+    if not os.path.exists(DB_PATH):
+        raise HTTPException(status_code=500, detail="Database not found.")
+
+    if sort_by not in _ALLOWED_SORT_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
+    if sort_order not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_order: {sort_order}")
+
+    # 解析日期參數 (前端傳 yyyy-mm-dd)
+    start_ts = pd.to_datetime(start_date, format="%Y-%m-%d", errors="coerce") if start_date else None
+    end_ts = pd.to_datetime(end_date, format="%Y-%m-%d", errors="coerce") if end_date else None
+    if start_date and pd.isna(start_ts):
+        raise HTTPException(status_code=400, detail="start_date 格式錯誤，需為 yyyy-mm-dd")
+    if end_date and pd.isna(end_ts):
+        raise HTTPException(status_code=400, detail="end_date 格式錯誤，需為 yyyy-mm-dd")
+
+    try:
+        conn = get_db_connection()
+        sql = '''
+            SELECT
+                "PO_Number", "PO_Date", "PO_Status", "Supplier_ID", "Supplier_Name",
+                "Item_Description", "Quantity", "Savings_Pct",
+                "Invoice_Status", "Payment_Status", "Invoice_Match_Type", "Maverick_Spend"
+            FROM procurement_data
+            WHERE LOWER(TRIM("PO_Status")) != 'cancelled'
+              AND (
+                  LOWER(TRIM("Payment_Status")) IN ('overdue', 'pending', 'on hold')
+                  OR LOWER(TRIM("Invoice_Status")) IN ('overdue', 'pending', 'disputed')
+                  OR LOWER(TRIM("Invoice_Match_Type")) IN ('2-way match', 'no match')
+                  OR LOWER(TRIM("Maverick_Spend")) = 'yes'
+              )
+        '''
+        df = pd.read_sql_query(sql, conn)
+        conn.close()
+
+        if df.empty:
+            return {
+                "status": "success",
+                "total": 0, "page": page, "page_size": page_size, "total_pages": 0,
+                "data": [],
+            }
+
+        # 日期區間篩選 (在 pandas 端做，因 SQLite 存的是 dd/mm/yyyy 字串)
+        df["_po_date_ts"] = df["PO_Date"].apply(_parse_dmy)
+        if start_ts is not None:
+            df = df[df["_po_date_ts"] >= start_ts]
+        if end_ts is not None:
+            df = df[df["_po_date_ts"] <= end_ts]
+
+        if df.empty:
+            return {
+                "status": "success",
+                "total": 0, "page": page, "page_size": page_size, "total_pages": 0,
+                "data": [],
+            }
+
+        # 排序 (數值欄位需先轉型)
+        sort_col_map = {
+            "po_date": "_po_date_ts",
+            "po_number": "PO_Number",
+            "po_status": "PO_Status",
+            "supplier_id": "Supplier_ID",
+            "supplier_name": "Supplier_Name",
+            "item_description": "Item_Description",
+            "quantity": "_quantity_num",
+            "savings_pct": "_savings_pct_num",
+            "invoice_status": "Invoice_Status",
+            "payment_status": "Payment_Status",
+            "invoice_match_type": "Invoice_Match_Type",
+            "maverick_spend": "Maverick_Spend",
+        }
+        if sort_by == "quantity":
+            df["_quantity_num"] = pd.to_numeric(df["Quantity"], errors="coerce")
+        elif sort_by == "savings_pct":
+            df["_savings_pct_num"] = pd.to_numeric(df["Savings_Pct"], errors="coerce")
+
+        df = df.sort_values(
+            by=sort_col_map[sort_by],
+            ascending=(sort_order == "asc"),
+            na_position="last",
+            kind="mergesort",
+        )
+
+        total = len(df)
+        total_pages = (total + page_size - 1) // page_size
+        offset = (page - 1) * page_size
+        page_df = df.iloc[offset : offset + page_size]
+
+        data = []
+        for _, row in page_df.iterrows():
+            data.append({
+                "po_number": row["PO_Number"],
+                "po_date": _format_ymd_slash(row["_po_date_ts"]),
+                "po_status": row["PO_Status"],
+                "supplier_id": row["Supplier_ID"],
+                "supplier_name": row["Supplier_Name"],
+                "item_description": row["Item_Description"],
+                "quantity": row["Quantity"],
+                "savings_pct": row["Savings_Pct"],
+                "invoice_status": row["Invoice_Status"],
+                "payment_status": row["Payment_Status"],
+                "invoice_match_type": row["Invoice_Match_Type"],
+                "maverick_spend": row["Maverick_Spend"],
+                "matched_rules": _compute_matched_rules(row),
+            })
+
+        return {
+            "status": "success",
+            "total": int(total),
+            "page": page,
+            "page_size": page_size,
+            "total_pages": int(total_pages),
+            "data": data,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in at-risk-orders: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ----- Mock API 區塊 (供前端開發使用) -----
 
 class SupplierRiskRequest(BaseModel):
@@ -273,9 +516,9 @@ def predict_supplier_risk(request: SupplierRiskRequest = Body(...)):
         osint_summary_msg = ""
         osint_sources_list = []
         if row:
-            esg_score = row['Supplier_ESG_Score']
+            esg_score = float(row['Supplier_ESG_Score'])
             on_time = row['On_Time_Delivery']
-            days_late = row['Days_Late']
+            days_late = int(float(row['Days_Late']))
             po_status = row['PO_Status']
         else:
             # 啟用 OSINT 進行新廠商資料搜集
@@ -553,7 +796,9 @@ def get_supplier_context(id: str):
 
 class SavingsPredictionRequest(BaseModel):
     category: str
+    item_description: str = ""
     supplier_id: str
+    contract_id: str = ""
     quantity: int
     budget_price: float
 
@@ -618,11 +863,74 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
             
             class_mapping = {0: "🟢 預期可節省成本", 1: "🟡 接近預算範圍", 2: "🔴 潛在超出預算風險"}
             
+            # 爭議預測 (Disputed Prediction)
+            is_disputed = False
+            try:
+                # Prepare features for dispute model
+                # Features: ['Category_Encoded', 'Supplier_Risk_Encoded', 'Contract_Type_Encoded', 'Quantity', 'Maverick_Spend', 'Single_Source_Flag']
+                cat_d_enc = dispute_encoders['Category'].transform([request.category] if request.category in dispute_encoders['Category'].classes_ else ['Unknown'])[0]
+                risk_d_enc = dispute_encoders['Supplier_Risk'].transform([sup_info["Supplier_Risk"]] if sup_info["Supplier_Risk"] in dispute_encoders['Supplier_Risk'].classes_ else ['Unknown'])[0]
+                
+                # We use request.contract_id as proxy for contract type since we just have the ID in the request
+                # For a more precise mapping, we could parse the type from the UI, but this will work as a fallback
+                contract_type = "Framework" if "CON" in request.contract_id else "Spot"
+                contract_d_enc = dispute_encoders['Contract_Type'].transform([contract_type] if contract_type in dispute_encoders['Contract_Type'].classes_ else ['Unknown'])[0]
+                
+                dispute_input = pd.DataFrame([{
+                    'Category_Encoded': cat_d_enc,
+                    'Supplier_Risk_Encoded': risk_d_enc,
+                    'Contract_Type_Encoded': contract_d_enc,
+                    'Quantity': request.quantity,
+                    'Maverick_Spend': mav_val,
+                    'Single_Source_Flag': ss_val
+                }])
+                dispute_pred = dispute_model.predict(dispute_input)[0]
+                is_disputed = bool(dispute_pred == 1)
+            except Exception as de:
+                print("Dispute Prediction Error:", de)
+
+            # 產生 AI 說明
+            import google.generativeai as genai
+            import os
+            from dotenv import load_dotenv
+            ai_explanation = ""
+            try:
+                load_dotenv()
+                gemini_key = os.environ.get("GEMINI_API_KEY")
+                if gemini_key:
+                    genai.configure(api_key=gemini_key)
+                    model = genai.GenerativeModel('gemini-2.5-flash')
+                    savings_amount = request.budget_price * (pred_savings / 100.0)
+                    prompt = f"""
+                    You are an expert procurement AI assistant.
+                    Please explain why this purchase order has a predicted savings of {pred_savings:.1f}% (${savings_amount:.2f}).
+                    Context:
+                    - Supplier: {request.supplier_id} (Risk: {sup_info['Supplier_Risk']})
+                    - Category: {request.category}
+                    - Item: {request.item_description}
+                    - Quantity: {request.quantity}
+                    - Budget: ${request.budget_price}
+                    - Single Source: {"Yes" if ss_val else "No"}
+                    - Maverick Spend: {"Yes" if mav_val else "No"}
+                    
+                    Provide a short 2-3 sentence explanation in Traditional Chinese. Keep it professional and business-focused.
+                    DO NOT say "Here is the explanation" or "Sure". Just output the explanation directly.
+                    """
+                    response = model.generate_content(prompt)
+                    ai_explanation = response.text.strip()
+                else:
+                    ai_explanation = f"基於預算金額與歷史平均單價計算，預估將產生 {pred_savings:.1f}% 的成本差異。"
+            except Exception as l_e:
+                print("Gemini Explanation Error:", l_e)
+                ai_explanation = f"基於預算金額與歷史平均單價計算，預估將產生 {pred_savings:.1f}% 的成本差異。"
+
             ret_val = {
                 "status": "success",
                 "pred_savings_pct": round(pred_savings, 2),
                 "pred_class_code": pred_class_idx,
                 "status_text": class_mapping.get(pred_class_idx, "未知"),
+                "is_disputed": is_disputed,
+                "ai_explanation": ai_explanation,
                 "enriched_features": {
                     "supplier_risk": sup_info["Supplier_Risk"],
                     "maverick_spend": sup_info["Maverick_Spend"],
@@ -686,45 +994,49 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
     return ret_val
 
 @app.get("/api/reports/weekly")
-def get_weekly_report(skip_gemini: bool = False):
+def get_weekly_report(skip_gemini: bool = False, start_date: str = None, end_date: str = None):
     import datetime
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 計算本週日期區間
-    today = datetime.datetime.now()
-    seven_days_ago = today - datetime.timedelta(days=7)
-    date_str_end = today.strftime("%Y-%m-%d")
-    date_str_start = seven_days_ago.strftime("%Y-%m-%d")
+    if start_date and end_date:
+        date_str_start = start_date
+        date_str_end = end_date
+    else:
+        # 計算本週日期區間 (預設)
+        today = datetime.datetime.now()
+        seven_days_ago = today - datetime.timedelta(days=7)
+        date_str_end = today.strftime("%Y-%m-%d")
+        date_str_start = seven_days_ago.strftime("%Y-%m-%d")
     
-    # 1. AI Logs Stats (限定本週)
+    # 1. AI Logs Stats
     cursor.execute("""
         SELECT COUNT(*) as total, SUM(CASE WHEN pred_class_code = 2 THEN 1 ELSE 0 END) as blocked 
         FROM ai_prediction_logs 
-        WHERE timestamp >= date('now', '-7 days')
-    """)
+        WHERE date(timestamp) >= ? AND date(timestamp) <= ?
+    """, (date_str_start, date_str_end))
     log_stats = cursor.fetchone()
     total_preds = log_stats['total'] if log_stats['total'] else 0
     blocked_preds = log_stats['blocked'] if log_stats['blocked'] else 0
     
-    # 2. Risk Distribution for Pie Chart (限定本週)
+    # 2. Risk Distribution for Pie Chart
     cursor.execute("""
         SELECT pred_class_code, COUNT(*) as cnt 
         FROM ai_prediction_logs 
-        WHERE timestamp >= date('now', '-7 days')
+        WHERE date(timestamp) >= ? AND date(timestamp) <= ?
         GROUP BY pred_class_code
-    """)
+    """, (date_str_start, date_str_end))
     risk_dist = {0: 0, 1: 0, 2: 0}
     for row in cursor.fetchall():
         risk_dist[row['pred_class_code']] = row['cnt']
         
-    # 3. Cost Avoidance Trend for Bar Chart (限定本週)
+    # 3. Cost Avoidance Trend for Bar Chart
     cursor.execute("""
         SELECT date(timestamp) as dt, SUM(CASE WHEN pred_class_code = 2 THEN budget_price * 0.15 ELSE 0 END) as cost_avoidance 
         FROM ai_prediction_logs 
-        WHERE timestamp >= date('now', '-7 days')
-        GROUP BY dt ORDER BY dt DESC LIMIT 7
-    """)
+        WHERE date(timestamp) >= ? AND date(timestamp) <= ?
+        GROUP BY dt ORDER BY dt DESC LIMIT 30
+    """, (date_str_start, date_str_end))
     trend_rows = cursor.fetchall()
     dates = []
     avoidance = []

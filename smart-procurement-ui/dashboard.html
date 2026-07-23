@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- Marked.js for Markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=1.2">
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 </head>
 <body>
@@ -52,7 +52,7 @@
                         <i class="ph ph-plus-circle"></i> Add Vendor
                     </button>
                     <button class="icon-btn"><i class="ph ph-bell"></i><span class="badge">2</span></button>
-                    <button class="icon-btn"><i class="ph ph-gear"></i></button>
+                    <button id="btn-settings" class="icon-btn"><i class="ph ph-gear"></i></button>
                 </div>
             </header>
 
@@ -124,6 +124,22 @@
                         </div>
                         <form id="prediction-form" class="custom-form">
                             <div class="form-group">
+                                <label for="input-category">採購品項 (Category)</label>
+                                <select id="input-category" class="form-control">
+                                    <option value="IT Software">IT Software</option>
+                                    <option value="Raw Materials">Raw Materials</option>
+                                    <option value="Logistics">Logistics</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="input-item-desc">商品項目 (Item Description)</label>
+                                <select id="input-item-desc" class="form-control">
+                                    <option value="ERP License">ERP License</option>
+                                    <option value="Steel Sheet (kg)">Steel Sheet (kg)</option>
+                                    <option value="Packaging Material">Packaging Material</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
                                 <label for="input-supplier">供應商 (Supplier)</label>
                                 <select id="input-supplier" class="form-control">
                                     <option value="S001">CloudTech Solutions</option>
@@ -132,10 +148,11 @@
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="input-contract">合約類別 (Contract)</label>
+                                <label for="input-contract">合約類型 (Contract ID + Type)</label>
                                 <select id="input-contract" class="form-control">
-                                    <option value="C001">年度框架協議 (Annual Framework)</option>
-                                    <option value="C002">單次採購 (Spot Buy)</option>
+                                    <option value="CON-1001 (Framework)">CON-1001 (Framework)</option>
+                                    <option value="CON-2002 (Spot)">CON-2002 (Spot)</option>
+                                    <option value="NO-CONTRACT (Spot)">無合約 (Spot)</option>
                                 </select>
                             </div>
                             <div class="form-group">
@@ -155,14 +172,27 @@
                         <div class="card-header">
                             <h3><i class="ph ph-chart-polar"></i> 預測結果</h3>
                         </div>
-                        <div class="result-content text-center">
-                            <h4 class="text-muted">預測節省率 (Savings Pct)</h4>
-                            <div class="result-value success-text" id="val-pred-savings">+8.5%</div>
-                            <p class="mt-2">預估可節省金額: <strong id="val-pred-amount">$4,250</strong></p>
+                        <div class="result-content">
+                            <h4 class="text-muted text-center">預測節省率 (Savings Pct)</h4>
+                            <div class="result-value success-text text-center" id="val-pred-savings">+8.5%</div>
+                            <p class="mt-2 text-center">預估可節省金額: <strong id="val-pred-amount">$4,250</strong></p>
                             
-                            <div class="tags-container mt-4 justify-center">
-                                <span class="alert-tag warning" id="tag-pred-reason1"><i class="ph ph-info"></i> 歷史議價空間大</span>
-                                <span class="alert-tag success" id="tag-pred-reason2"><i class="ph ph-info"></i> 數量達折扣門檻</span>
+                            <!-- AI Explanation and Disputed section -->
+                            <div class="ai-insight-box mt-4" style="text-align: left; background: rgba(0,255,100,0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(0,255,100,0.2);">
+                                <h5><i class="ph ph-sparkle text-primary"></i> AI 解釋說明</h5>
+                                <p id="val-ai-explanation" style="font-size: 0.9em; line-height: 1.5; color: #b0c4de;">正在分析中...</p>
+                            </div>
+                            
+                            <div class="mt-3" id="disputed-alert-container">
+                                <!-- Disputed badge will be injected here via JS -->
+                            </div>
+                            
+                            <div class="mt-4">
+                                <p class="text-sm text-muted mb-2"><i class="ph ph-magic-wand"></i> AI 自動補水特徵:</p>
+                                <div class="tags-container justify-center">
+                                    <span class="alert-tag warning" id="tag-pred-reason1"><i class="ph ph-info"></i> 歷史議價空間大</span>
+                                    <span class="alert-tag success" id="tag-pred-reason2"><i class="ph ph-info"></i> 數量達折扣門檻</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -239,25 +269,73 @@
             <!-- VIEW: Risk Orders (Risk List) -->
             <div id="view-risk" class="view-section">
                 <div class="dashboard-header">
-                    <h1>風險訂單清單 (Risk List)</h1>
-                    <p>抓出超出預算風險、Maverick Spend (越權採購)、單一來源 (Single Source) 的高風險採購單。</p>
+                    <h1>風險訂單追蹤清單 (At-Risk PO Tracker)</h1>
+                    <p>依付款、發票、核銷比對、越權採購四大規則篩選出需要追蹤處理的採購單。已排除已取消 (Cancelled) 訂單。</p>
+                </div>
+
+                <!-- 日期篩選列 -->
+                <div class="card glass-panel" style="margin-bottom: 1rem;">
+                    <div style="display:flex; flex-wrap:wrap; gap:1rem; align-items:flex-end;">
+                        <div>
+                            <label for="risk-start-date" style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">起始日期 (PO Date)</label>
+                            <input type="date" id="risk-start-date" class="date-input" />
+                        </div>
+                        <div>
+                            <label for="risk-end-date" style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:0.25rem;">結束日期 (PO Date)</label>
+                            <input type="date" id="risk-end-date" class="date-input" />
+                        </div>
+                        <div>
+                            <button id="risk-query-btn" class="btn btn-primary"><i class="ph ph-magnifying-glass"></i> 查詢</button>
+                            <button id="risk-reset-btn" class="btn btn-secondary" style="margin-left:0.5rem;"><i class="ph ph-arrow-counter-clockwise"></i> 重設</button>
+                        </div>
+                        <div style="margin-left:auto; text-align:right;">
+                            <div style="font-size:0.85rem; color:var(--text-muted);">符合條件</div>
+                            <div style="font-size:1.5rem; font-weight:600;"><span id="risk-total-count">0</span> 筆</div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="card glass-panel">
-                    <table class="data-table" id="risk-table">
-                        <thead>
-                            <tr>
-                                <th>PO 編號</th>
-                                <th>供應商</th>
-                                <th>預測超支 (Savings Pct)</th>
-                                <th>越權採購 (Maverick)</th>
-                                <th>單一來源 (Single Source)</th>
-                                <th>建議行動</th>
-                            </tr>
-                        </thead>
-                        <tbody id="risk-table-body">
-                        </tbody>
-                    </table>
+                    <div style="overflow-x:auto;">
+                        <style>
+                            #risk-table th, #risk-table td {
+                                padding: 0.5rem 0.4rem;
+                                font-size: 0.85rem;
+                            }
+                            #risk-table th {
+                                font-size: 0.75rem;
+                                white-space: nowrap;
+                            }
+                        </style>
+                        <table class="data-table sortable-table" id="risk-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="po_number">PO # <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="po_date">日期 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="po_status">狀態 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="supplier_id">供 ID <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="supplier_name">供應商 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="item_description">商品 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="quantity">數量 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="savings_pct">預算比 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="invoice_status">發票 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="payment_status">付款 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="invoice_match_type">核銷 <span class="sort-icon"></span></th>
+                                    <th class="sortable" data-sort="maverick_spend">越權 <span class="sort-icon"></span></th>
+                                    <th>風險原因</th>
+                                </tr>
+                            </thead>
+                            <tbody id="risk-table-body">
+                                <tr><td colspan="13" class="text-center">載入中...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- 分頁控制 -->
+                    <div id="risk-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; flex-wrap:wrap; gap:0.5rem;">
+                        <div style="font-size:0.85rem; color:var(--text-muted);" id="risk-page-info">-</div>
+                        <div style="display:flex; gap:0.25rem; align-items:center;" id="risk-page-controls"></div>
+                    </div>
                 </div>
             </div>
 
@@ -302,12 +380,12 @@
                     <table class="data-table">
                         <thead>
                             <tr>
-                                <th>PO 編號</th>
-                                <th>日期</th>
-                                <th>採購類別</th>
-                                <th>金額 (Spend)</th>
-                                <th>越權採購 (Maverick)</th>
-                                <th>狀態</th>
+                                <th class="sortable" data-sort="id" style="cursor: pointer;">PO 編號 <i class="ph ph-arrows-down-up"></i></th>
+                                <th class="sortable" data-sort="date" style="cursor: pointer;">日期 <i class="ph ph-arrows-down-up"></i></th>
+                                <th class="sortable" data-sort="category" style="cursor: pointer;">採購類別 <i class="ph ph-arrows-down-up"></i></th>
+                                <th class="sortable" data-sort="spend" style="cursor: pointer;">金額 (Spend) <i class="ph ph-arrows-down-up"></i></th>
+                                <th class="sortable" data-sort="maverick" style="cursor: pointer;">越權採購 (Maverick) <i class="ph ph-arrows-down-up"></i></th>
+                                <th class="sortable" data-sort="status" style="cursor: pointer;">狀態 <i class="ph ph-arrows-down-up"></i></th>
                             </tr>
                         </thead>
                         <tbody id="sc-po-tbody">
@@ -365,11 +443,11 @@
                     <div class="card glass-panel result-panel" id="onboarding-loading" style="display: none; justify-content: center; align-items: center; text-align: center; border-top: 4px solid var(--primary);">
                         <div style="padding: 3rem 1rem;">
                             <!-- Futuristic Scanner Animation -->
-                            <div style="position: relative; width: 120px; height: 120px; margin: 0 auto 2rem auto;">
-                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; border: 2px dashed rgba(0, 240, 255, 0.3); border-radius: 50%; animation: spin 4s linear infinite;"></div>
-                                <div style="position: absolute; top:10%; left:10%; width:80%; height:80%; border: 2px solid rgba(16, 185, 129, 0.5); border-radius: 50%; border-top-color: transparent; animation: spin 2s ease-in-out infinite reverse;"></div>
-                                <i class="ph ph-fingerprint" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 3rem; color: var(--primary); animation: pulse 1.5s infinite;"></i>
-                                <div style="position: absolute; top:0; left:0; width:100%; height:100%; background: linear-gradient(to bottom, rgba(0,240,255,0.2) 0%, transparent 100%); clip-path: polygon(50% 50%, 0 0, 100% 0); animation: scan 2s linear infinite; transform-origin: center;"></div>
+                            <div class="scanner-animation-container">
+                                <div class="scanner-ring-outer"></div>
+                                <div class="scanner-ring-inner"></div>
+                                <i class="ph ph-fingerprint scanner-icon"></i>
+                                <div class="scanner-beam"></div>
                             </div>
                             
                             <h3 style="color: var(--primary); letter-spacing: 2px; margin-bottom: 0.5rem; font-weight: 500;">AI 深度網路徵信中...</h3>
@@ -391,17 +469,6 @@
                                 </div>
                             </div>
                         </div>
-                        <style>
-                            @keyframes scan {
-                                0% { transform: rotate(0deg); }
-                                100% { transform: rotate(360deg); }
-                            }
-                            @keyframes pulse {
-                                0% { opacity: 0.5; }
-                                50% { opacity: 1; text-shadow: 0 0 10px var(--primary); }
-                                100% { opacity: 0.5; }
-                            }
-                        </style>
                     </div>
 
                     <!-- Result Panel -->
@@ -417,7 +484,7 @@
                                 </div>
                                 <div style="text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:0.75rem;">
                                     <span class="badge" id="ob-res-risk" style="font-size:1rem; padding:0.4rem 0.8rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);">Risk: Low</span>
-                                    <button id="btn-sync-erp" style="display:none; padding: 0.5rem 1rem; font-size:0.9rem; align-items:center; gap:0.5rem; background: linear-gradient(90deg, #0ea5e9, #2563eb); border:none; color:white; border-radius:6px; cursor:pointer; box-shadow: 0 4px 10px rgba(14,165,233,0.3); transition: all 0.2s;">
+                                    <button id="btn-sync-erp" class="btn-erp-sync" style="display:none;">
                                         <i class="ph ph-cloud-arrow-up" style="font-size: 1.1rem;"></i> 匯入企業採購系統 (ERP)
                                     </button>
                                 </div>
@@ -523,9 +590,20 @@
                     <p>自動擷取前台 AI 預測數據，動態生成真實圖表與 SHAP 決策根因分析。</p>
                 </div>
 
-                <div class="report-actions mb-4" style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <button class="btn btn-primary" id="btn-weekly-report"><i class="ph ph-magic-wand"></i> 產生本週動態報表 (Live)</button>
+                <div class="report-actions mb-4" style="display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 1rem;">
+                    <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                        <select id="report-range-select" class="form-control" style="width: auto;">
+                            <option value="this_week">本週 (This Week)</option>
+                            <option value="last_week">上週 (Last Week)</option>
+                            <option value="last_30_days">近 30 天 (Last 30 Days)</option>
+                            <option value="custom">自訂區間 (Custom Range)</option>
+                        </select>
+                        <div id="report-custom-range" style="display: none; gap: 0.5rem; align-items: center;">
+                            <input type="date" id="report-start-date" class="form-control" style="background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--border-color);">
+                            <span>至</span>
+                            <input type="date" id="report-end-date" class="form-control" style="background-color: var(--card-bg); color: var(--text-main); border: 1px solid var(--border-color);">
+                        </div>
+                        <button class="btn btn-primary" id="btn-weekly-report"><i class="ph ph-magic-wand"></i> 產生動態報表 (Generate)</button>
                         <button class="btn btn-secondary" id="btn-monthly-report"><i class="ph ph-file-pdf"></i> 匯出 PDF</button>
                     </div>
                     <span id="report-loading-status" style="color:var(--primary); display:none;"><i class="ph ph-spinner ph-spin"></i> 正在從資料庫運算報表...</span>
@@ -571,8 +649,8 @@
     </div>
 
     <!-- OSINT News Modal -->
-    <div id="osint-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
-        <div class="card glass-panel" style="max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; padding: 2rem; position: relative; border: 1px solid rgba(255,255,255,0.1);">
+    <div id="osint-modal" class="modal-overlay" style="display:none;">
+        <div class="card glass-panel modal-content">
             <i class="ph ph-x" id="close-osint-modal" style="position:absolute; top: 1.5rem; right: 1.5rem; font-size: 1.5rem; cursor: pointer; color: var(--text-muted);"></i>
             <h3 style="margin-bottom: 1.5rem; color: var(--text-main);"><i class="ph ph-newspaper"></i> OSINT 負面新聞來源探勘</h3>
             <div id="osint-sources-container" style="display: flex; flex-direction: column; gap: 1rem;">
@@ -581,12 +659,12 @@
         </div>
     </div>
 
-    <script src="dashboard.js"></script>
+    <script src="dashboard.js?v=1.1"></script>
 
     <!-- Add Supplier Drawer -->
-    <div id="add-supplier-drawer" style="position: fixed; top: 0; right: -500px; width: 400px; height: 100vh; background: #0a0e17; z-index: 1000; transition: right 0.3s ease-in-out; border-left: 1px solid rgba(0, 240, 255, 0.3); padding: 2rem; box-shadow: -5px 0 25px rgba(0,0,0,0.8); overflow-y: auto; display: flex; flex-direction: column;">
+    <div id="add-supplier-drawer" class="drawer-panel">
         
-        <div class="drawer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+        <div class="drawer-header-content">
             <h2 style="font-size: 1.5rem; margin: 0; display: flex; align-items: center; gap: 0.5rem; color: #fff;">
                 <i class="ph ph-buildings" style="color: var(--primary);"></i> 新增供應商建檔
             </h2>
@@ -635,5 +713,50 @@
     
     <!-- Drawer Overlay (Click to close) -->
     <div id="drawer-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.4); z-index: 999; opacity: 0; transition: opacity 0.3s ease;"></div>
+    <!-- Settings Drawer -->
+    <div id="settings-drawer" class="side-drawer glass-panel" style="display: none; position: fixed; top: 0; right: -400px; width: 400px; height: 100vh; z-index: 1000; padding: 2rem; overflow-y: auto; transition: right 0.3s ease; box-shadow: -5px 0 30px rgba(0,0,0,0.5);">
+        <div class="drawer-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid var(--border-glass); padding-bottom: 1rem;">
+            <h2 style="font-size: 1.5rem; display: flex; align-items: center; gap: 0.5rem;"><i class="ph ph-gear"></i> 系統設定</h2>
+            <button id="btn-close-settings" style="background: none; border: none; color: inherit; font-size: 1.5rem; cursor: pointer;"><i class="ph ph-x"></i></button>
+        </div>
+        
+        <div class="settings-section" style="margin-bottom: 2rem;">
+            <h3 style="font-size: 1.1rem; margin-bottom: 1rem; color: var(--primary);">外觀主題</h3>
+            <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-glass); padding: 1rem; border-radius: 8px;">
+                <div>
+                    <div style="font-weight: 600;">淺色模式 (Light Mode)</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">切換為適合辦公室環境的明亮主題</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-light-mode">
+                    <span class="slider round"></span>
+                </label>
+            </div>
+        </div>
+
+        <div class="settings-section" style="margin-bottom: 2rem;">
+            <h3 style="font-size: 1.1rem; margin-bottom: 1rem; color: var(--primary);">通知與警報</h3>
+            <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-glass); padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem;">
+                <div>
+                    <div style="font-weight: 600;">高風險供應商異動</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">當供應商風險等級升高時發送通知</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-alert-risk" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+            <div class="setting-item" style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-glass); padding: 1rem; border-radius: 8px;">
+                <div>
+                    <div style="font-weight: 600;">價格異常波動</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">當預測價格偏差大於 15% 時發送通知</div>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="toggle-alert-price" checked>
+                    <span class="slider round"></span>
+                </label>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
