@@ -916,8 +916,8 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
                     model = genai.GenerativeModel('gemini-2.5-flash')
                     savings_amount = request.budget_price * (pred_savings / 100.0)
                     prompt = f"""
-                    You are an expert procurement AI assistant.
-                    Please explain why this purchase order has a predicted savings of {pred_savings:.1f}% (${savings_amount:.2f}).
+                    You are an expert procurement AI assistant, acting as a mentor to junior procurement staff.
+                    Please perform two tasks based on this purchase order which has a predicted savings of {pred_savings:.1f}% (${savings_amount:.2f}):
                     Context:
                     - Supplier: {request.supplier_id} (Risk: {sup_info['Supplier_Risk']})
                     - Category: {request.category}
@@ -927,8 +927,23 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
                     - Single Source: {"Yes" if ss_val else "No"}
                     - Maverick Spend: {"Yes" if mav_val else "No"}
                     
-                    Provide a short 2-3 sentence explanation in Traditional Chinese. Keep it professional and business-focused.
-                    DO NOT say "Here is the explanation" or "Sure". Just output the explanation directly.
+                    Task 1 (Explanation): Provide a short 2 sentence explanation of why this prediction makes sense based on the context.
+                    Task 2 (Negotiation Playbook): Provide a 3-bullet-point "Business Negotiation Playbook" (商學交戰手則) designed to teach a beginner (小白) how to achieve this target savings. 
+                    Important rules for the playbook:
+                    - MUST include a strategy about finding 2-3 alternative suppliers to create a bidding war (競價).
+                    - MUST include a strategy about leveraging procurement networking and industry connections (採購的人脈).
+                    - Formulate the advice as practical, actionable business strategies based on the supplier's risk and single-source status.
+                    
+                    Format the output in Traditional Chinese (zh-TW) exactly like this:
+                    **【預測分析】**
+                    (Explanation text here)
+
+                    **【AI 商學教戰手則 (新手必讀)】**
+                    - (Point 1)
+                    - (Point 2)
+                    - (Point 3)
+                    
+                    DO NOT include any other text or greetings.
                     """
                     response = model.generate_content(prompt)
                     ai_explanation = response.text.strip()

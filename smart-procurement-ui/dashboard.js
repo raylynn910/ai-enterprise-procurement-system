@@ -502,10 +502,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
                 
-                // Update AI Explanation
+                // Update AI Explanation with Markdown support
                 const aiExplanationEl = document.getElementById('val-ai-explanation');
                 if (aiExplanationEl) {
-                    aiExplanationEl.innerText = result.ai_explanation || "無解釋資訊。";
+                    if (result.ai_explanation) {
+                        aiExplanationEl.innerHTML = typeof marked !== 'undefined' ? marked.parse(result.ai_explanation) : result.ai_explanation.replace(/\n/g, '<br>');
+                    } else {
+                        aiExplanationEl.innerText = "無解釋資訊。";
+                    }
                 }
                 
                 // Update Disputed alert badge
