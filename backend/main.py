@@ -916,21 +916,21 @@ class RiskReason(BaseModel):
 
 class NewSupplierResponse(BaseModel):
     mode: str = Field(..., description="day0 (入職當下) 或 review (交易累積後)")
-    risk_level: str = Field(..., description="預測風險等級: Low / Medium / High")
-    probabilities: dict = Field(..., description="三類機率 (未校準, 僅供排序參考)")
-    reasons: list[RiskReason] = Field(..., description="為什麼是這一級")
+    risk_level: str = Field(..., description="預測判定: 核准 / 需複核")
+    probabilities: dict = Field(..., description="二元機率 (未校準, 僅供排序參考)")
+    reasons: list[RiskReason] = Field(..., description="為什麼是這個判定")
     loso_accuracy: float = Field(..., description="該模式留一供應商驗證準確率")
     caveat: str = Field(..., description="使用注意")
 
 @app.post("/api/predict/new-supplier-risk", response_model=NewSupplierResponse)
 def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
     """
-    [ML] 新供應商風險分級 API (v2)
+    [ML] 新供應商風險分級 API (v3, 二元主框架)
 
-    回答: 「第 16 家新供應商依公司既有風險政策會被分到哪一級? 為什麼?」
-    - Day-0 模式 (入職當下, 只有 tier+esg): LOSO 驗證 67%
-    - Review 模式 (交易累積後, 加行為率): LOSO 驗證 73%
-    兩模式錯誤皆為相鄰等級、無 Low↔High 對調。Medium 以上建議人工複核。
+    回答: 「第 16 家新供應商依公司既有風險政策該『核准』還是『需複核』? 為什麼?」
+    - Day-0 模式 (入職當下, 只有 tier+esg): LOSO 87%, AUC 0.93
+    - Review 模式 (交易累積後, 加行為率): LOSO 87%, AUC 0.91
+    多數類基準 60%, permutation p<0.05。Medium 以上一律送人工複核。
     """
     if not NEW_SUPPLIER_MODEL_LOADED:
         raise HTTPException(status_code=503, detail="New-supplier scoring model not loaded")
@@ -955,26 +955,31 @@ def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
         profile = pd.DataFrame([row])[feats]
         proba = model.predict_proba(profile)[0]
         clf = model.named_steps["clf"]
-        risk_order = b["risk_order"]
-        # argmax 是 proba 的「欄位位置」; 類別「標籤」須經 classes_ 轉換,
-        # 兩者只在 classes_==[0,1,2] 時碰巧相等, 重訓後不保證
+        risk_order = b["risk_order"]     # ["核准","需複核"]
         pred_pos = int(proba.argmax())
         pred_label = int(clf.classes_[pred_pos])
 
-        # 可解釋性: 標準化特徵值 × 預測類別係數
+        # 可解釋性: 標準化特徵值 × 係數。二元 LogReg 的 coef_ 為 (1,n)、
+        # 該列即『正類(需複核=1)』方向; 不可用 coef_[pred_pos]。
         z = model.named_steps["scaler"].transform(profile)[0]
-        contrib = z * clf.coef_[pred_pos]
+        coef = clf.coef_
+        if coef.shape[0] == 1:                       # 二元
+            contrib_pos = z * coef[0]                # 對『需複核』的貢獻
+            contrib = contrib_pos if pred_label == 1 else -contrib_pos
+        else:                                        # 多類 (向後相容)
+            contrib = z * coef[pred_pos]
         order = abs(contrib).argsort()[::-1]
 
         reasons = [RiskReason(
             feature=b["feature_labels"].get(feats[int(j)], feats[int(j)]),
             value=round(float(profile.iloc[0, int(j)]), 4),
             contribution=round(float(contrib[int(j)]), 3),
-            direction="推向此級" if contrib[int(j)] > 0 else "拉離此級",
+            direction="推向此判定" if contrib[int(j)] > 0 else "拉離此判定",
         ) for j in order]
 
-        caveat = ("High 級訓練樣本僅 1 家, 真實 High 可能被低估為 Medium; "
-                  "Medium 以上建議人工複核。機率未經校準, 僅供排序參考。")
+        caveat = ("二元判定「核准 vs 需複核」, Medium 以上一律送人工複核 "
+                  "(寧可誤殺不可漏放)。機率未經校準, 僅供排序參考; "
+                  "訊號幾乎全來自 Tier, 行為率貢獻有限。")
         if mode == "review" and request.n_transactions is not None and request.n_transactions < 25:
             caveat += f" 目前僅 {request.n_transactions} 筆交易, 行為率仍不穩, 建議並看 Day-0 結果。"
 
