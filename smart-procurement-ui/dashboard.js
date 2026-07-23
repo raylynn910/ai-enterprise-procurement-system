@@ -348,6 +348,117 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 供應商風險政策評分 (new-supplier-risk, Day-0 / Review 雙模式)
+    const btnPolicyScore = document.getElementById('btn-policy-score');
+    if (btnPolicyScore) {
+        btnPolicyScore.addEventListener('click', async () => {
+            btnPolicyScore.disabled = true;
+            btnPolicyScore.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 評分中...';
+            try {
+                const tier = parseInt(document.getElementById('pol-tier').value, 10);
+                const esg = parseFloat(document.getElementById('pol-esg').value);
+                const mavStr = document.getElementById('pol-mav').value;
+                const singleStr = document.getElementById('pol-single').value;
+                const body = { tier, esg };
+                if (mavStr !== '' && singleStr !== '') {
+                    body.mav_rate = parseFloat(mavStr);
+                    body.single_rate = parseFloat(singleStr);
+                }
+                const res = await fetch('http://localhost:8000/api/predict/new-supplier-risk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    throw new Error(errData.detail || `HTTP ${res.status}`);
+                }
+                const d = await res.json();
+
+                const levelColors = { '核准': 'var(--success)', '需複核': 'var(--danger)' };
+                const color = levelColors[d.risk_level] || 'var(--text-muted)';
+                const levelBadge = document.getElementById('policy-res-level');
+                levelBadge.innerText = `${d.mode === 'day0' ? 'Day-0' : 'Review'} 模式 — ${d.risk_level}`;
+                levelBadge.style.color = color;
+                levelBadge.style.borderColor = color;
+                levelBadge.style.background = 'transparent';
+                levelBadge.style.border = `1px solid ${color}`;
+
+                document.getElementById('policy-res-proba').innerText =
+                    Object.entries(d.probabilities).map(([k, v]) => `${k}: ${(v * 100).toFixed(1)}%`).join('　');
+
+                const reasonsList = document.getElementById('policy-res-reasons');
+                reasonsList.innerHTML = '';
+                d.reasons.forEach(r => {
+                    const li = document.createElement('li');
+                    const arrow = r.contribution > 0 ? '↑' : '↓';
+                    li.innerText = `${r.feature} (值=${r.value})　貢獻=${r.contribution > 0 ? '+' : ''}${r.contribution}　${arrow} ${r.direction}`;
+                    reasonsList.appendChild(li);
+                });
+
+                document.getElementById('policy-res-caveat').innerText =
+                    `${d.caveat} (本模式留一驗證準確率: ${(d.loso_accuracy * 100).toFixed(0)}%)`;
+
+                document.getElementById('policy-result').style.display = 'block';
+            } catch (e) {
+                console.error(e);
+                alert(`評分失敗: ${e.message}`);
+            } finally {
+                btnPolicyScore.disabled = false;
+                btnPolicyScore.innerHTML = '<i class="ph ph-play"></i> 執行評分';
+            }
+        });
+    }
+
+    // 供應商財務體質評估 (financial: 名稱 → Altman Z''-score 即時計算)
+    const btnFinancialAssess = document.getElementById('btn-financial-assess');
+    if (btnFinancialAssess) {
+        btnFinancialAssess.addEventListener('click', async () => {
+            const name = document.getElementById('fin-name').value.trim();
+            const errBox = document.getElementById('financial-error');
+            const resultBox = document.getElementById('financial-result');
+            errBox.style.display = 'none';
+            resultBox.style.display = 'none';
+            if (!name) {
+                errBox.innerText = '請輸入公司名稱或股號。';
+                errBox.style.display = 'block';
+                return;
+            }
+            btnFinancialAssess.disabled = true;
+            btnFinancialAssess.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> 查詢中...';
+            try {
+                const res = await fetch(`http://localhost:8000/api/assess/company-financial?name=${encodeURIComponent(name)}`);
+                const d = await res.json();
+                if (!res.ok) {
+                    throw new Error(d.detail || `HTTP ${res.status}`);
+                }
+
+                const zoneColors = { Safe: 'var(--success)', Grey: 'var(--warning)', Distress: 'var(--danger)' };
+                const color = zoneColors[d.zone] || 'var(--text-muted)';
+                const zoneBadge = document.getElementById('fin-res-zone');
+                zoneBadge.innerText = d.zone;
+                zoneBadge.style.border = `1px solid ${color}`;
+                zoneBadge.style.color = color;
+                zoneBadge.style.background = 'transparent';
+
+                document.getElementById('fin-res-zscore').innerText = `Z''=${d.z_score}`;
+                document.getElementById('fin-res-desc').innerText = d.zone_description
+                    + (d.period_note ? `　⚠️ ${d.period_note}` : '');
+                document.getElementById('fin-res-date').innerText = d.statement_date;
+                document.getElementById('fin-res-ticker').innerText = d.ticker;
+
+                resultBox.style.display = 'block';
+            } catch (e) {
+                console.error(e);
+                errBox.innerText = `查詢失敗: ${e.message}`;
+                errBox.style.display = 'block';
+            } finally {
+                btnFinancialAssess.disabled = false;
+                btnFinancialAssess.innerHTML = '<i class="ph ph-magnifying-glass"></i> 查詢';
+            }
+        });
+    }
+
     // Prediction Form Logic
     const btnPredict = document.getElementById('btn-predict');
     const predictionResult = document.getElementById('prediction-result');

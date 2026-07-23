@@ -41,6 +41,26 @@ except Exception as e:
     print(f"Warning: ML models failed to load. Using mock fallback. Error: {e}")
     ML_MODELS_LOADED = False
 
+# 新供應商風險評分引擎 (training_scripts/new_supplier_risk_scoring.py 產出)
+# 獨立旗標載入: 這個模型失敗不影響其他模型, 反之亦然
+try:
+    with open(os.path.join(BASE_DIR, "models", "new_supplier_scoring_model.pkl"), "rb") as f:
+        new_supplier_bundle = pickle.load(f)
+    NEW_SUPPLIER_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: new-supplier scoring model failed to load. Error: {e}")
+    NEW_SUPPLIER_MODEL_LOADED = False
+
+# 供應商財務風險模型 (training_scripts/supplier_financial_risk.py 產出,
+# 訓練自 UCI 台灣企業破產真實資料)
+try:
+    with open(os.path.join(BASE_DIR, "models", "financial_risk_model.pkl"), "rb") as f:
+        financial_risk_bundle = pickle.load(f)
+    FINANCIAL_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: financial risk model failed to load. Error: {e}")
+    FINANCIAL_MODEL_LOADED = False
+
 app = FastAPI(
     title="Smart Procurement API",
     description="API for the AI-driven Enterprise Procurement System",
@@ -1186,6 +1206,229 @@ def overview_kpis():
         'avg_esg': round(avg_esg, 1),
         'maverick_count': maverick_count
     }
+
+
+# ----- 新供應商風險評分 API (v2 審計修正版) -----
+
+class NewSupplierRequest(BaseModel):
+    tier: int = Field(..., ge=1, le=3, description="供應商層級 1-3", example=3)
+    esg: float = Field(..., ge=0, le=100, description="ESG 評分 0-100", example=48.0)
+    mav_rate: Optional[float] = Field(None, ge=0, le=1,
+        description="觀察至今的脫軌採購率; 入職當下無交易時留空 → Day-0 模式")
+    single_rate: Optional[float] = Field(None, ge=0, le=1,
+        description="觀察至今的單一來源率; 入職當下無交易時留空 → Day-0 模式")
+    n_transactions: Optional[int] = Field(None, ge=0,
+        description="目前累積交易筆數 (選填, <25 時回應會提醒行為率不穩)")
+
+class RiskReason(BaseModel):
+    feature: str = Field(..., description="影響因素 (商業語言)")
+    value: float = Field(..., description="該供應商的特徵值")
+    contribution: float = Field(..., description="對預測類別 logit 的貢獻 (正=推向此級)")
+    direction: str = Field(..., description="推向此級 / 拉離此級")
+
+class NewSupplierResponse(BaseModel):
+    mode: str = Field(..., description="day0 (入職當下) 或 review (交易累積後)")
+    risk_level: str = Field(..., description="預測判定: 核准 / 需複核")
+    probabilities: dict = Field(..., description="二元機率 (未校準, 僅供排序參考)")
+    reasons: list[RiskReason] = Field(..., description="為什麼是這個判定")
+    loso_accuracy: float = Field(..., description="該模式留一供應商驗證準確率")
+    caveat: str = Field(..., description="使用注意")
+
+@app.post("/api/predict/new-supplier-risk", response_model=NewSupplierResponse)
+def predict_new_supplier_risk(request: NewSupplierRequest = Body(...)):
+    """
+    [ML] 新供應商風險分級 API (v3, 二元主框架)
+
+    回答: 「第 16 家新供應商依公司既有風險政策該『核准』還是『需複核』? 為什麼?」
+    - Day-0 模式 (入職當下, 只有 tier+esg): LOSO 87%, AUC 0.93
+    - Review 模式 (交易累積後, 加行為率): LOSO 87%, AUC 0.91
+    多數類基準 60%, permutation p<0.05。Medium 以上一律送人工複核。
+    """
+    if not NEW_SUPPLIER_MODEL_LOADED:
+        raise HTTPException(status_code=503, detail="New-supplier scoring model not loaded")
+
+    # 行為率必須成對提供; 只給一個會造成「已知資訊被靜默忽略」的誤導結果
+    provided = (request.mav_rate is not None, request.single_rate is not None)
+    if provided[0] != provided[1]:
+        raise HTTPException(status_code=422, detail=(
+            "mav_rate 與 single_rate 必須同時提供 (Review 模式) 或同時留空 (Day-0 模式), "
+            "只提供其中一個會導致該資訊被忽略而產生誤導性評分"))
+
+    try:
+        b = new_supplier_bundle
+        if all(provided):
+            mode, model, feats = "review", b["review_model"], b["features_review"]
+            row = {"tier": request.tier, "esg": request.esg,
+                   "mav_rate": request.mav_rate, "single_rate": request.single_rate}
+        else:
+            mode, model, feats = "day0", b["day0_model"], b["features_day0"]
+            row = {"tier": request.tier, "esg": request.esg}
+
+        profile = pd.DataFrame([row])[feats]
+        proba = model.predict_proba(profile)[0]
+        clf = model.named_steps["clf"]
+        risk_order = b["risk_order"]     # ["核准","需複核"]
+        pred_pos = int(proba.argmax())
+        pred_label = int(clf.classes_[pred_pos])
+
+        # 可解釋性: 標準化特徵值 × 係數。二元 LogReg 的 coef_ 為 (1,n)、
+        # 該列即『正類(需複核=1)』方向; 不可用 coef_[pred_pos]。
+        z = model.named_steps["scaler"].transform(profile)[0]
+        coef = clf.coef_
+        if coef.shape[0] == 1:                       # 二元
+            contrib_pos = z * coef[0]                # 對『需複核』的貢獻
+            contrib = contrib_pos if pred_label == 1 else -contrib_pos
+        else:                                        # 多類 (向後相容)
+            contrib = z * coef[pred_pos]
+        order = abs(contrib).argsort()[::-1]
+
+        reasons = [RiskReason(
+            feature=b["feature_labels"].get(feats[int(j)], feats[int(j)]),
+            value=round(float(profile.iloc[0, int(j)]), 4),
+            contribution=round(float(contrib[int(j)]), 3),
+            direction="推向此判定" if contrib[int(j)] > 0 else "拉離此判定",
+        ) for j in order]
+
+        caveat = ("二元判定「核准 vs 需複核」, Medium 以上一律送人工複核 "
+                  "(寧可誤殺不可漏放)。機率未經校準, 僅供排序參考; "
+                  "訊號幾乎全來自 Tier, 行為率貢獻有限。")
+        if mode == "review" and request.n_transactions is not None and request.n_transactions < 25:
+            caveat += f" 目前僅 {request.n_transactions} 筆交易, 行為率仍不穩, 建議並看 Day-0 結果。"
+
+        return NewSupplierResponse(
+            mode=mode,
+            risk_level=risk_order[pred_label],
+            probabilities={risk_order[int(c)]: round(float(proba[i]), 4)
+                           for i, c in enumerate(clf.classes_)},
+            reasons=reasons,
+            loso_accuracy=round(float(b["loso_accuracy"][mode]), 3),
+            caveat=caveat,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in new-supplier risk scoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ----- 供應商財務風險 API (UCI 台灣真實資料 ML 模型 + Altman Z'' 即時引擎) -----
+
+# 即時引擎模組: import 失敗 (如快取 DB 不可寫) 不應擊殺整個 app
+try:
+    import financial_risk as fr
+    FR_ENGINE_LOADED = True
+except Exception as _fr_err:
+    print(f"Warning: financial_risk engine failed to load. Error: {_fr_err}")
+    FR_ENGINE_LOADED = False
+
+
+def _model_contributions(model, Xrow):
+    """回傳逐特徵貢獻 (對正類 logit), 支援 XGBoost / LightGBM / LogReg Pipeline。
+
+    訓練腳本以 CV 挑冠軍, 部署的模型類別可能隨重訓改變 —
+    端點不可寫死單一框架的 API。
+    """
+    import numpy as _np
+    if hasattr(model, "get_booster"):                       # XGBoost
+        import xgboost as _xgb
+        return model.get_booster().predict(
+            _xgb.DMatrix(Xrow), pred_contribs=True)[0][:-1]  # 末位是 bias
+    if hasattr(model, "booster_"):                          # LightGBM
+        return _np.asarray(
+            model.booster_.predict(Xrow, pred_contrib=True))[0][:-1]
+    if hasattr(model, "named_steps") and "c" in getattr(model, "named_steps", {}):
+        z = model.named_steps["s"].transform(Xrow)[0]       # LogReg Pipeline
+        return z * model.named_steps["c"].coef_[0]
+    return _np.zeros(Xrow.shape[1])                         # 未知模型: 無貢獻資訊
+
+class FinancialRatiosRequest(BaseModel):
+    ratios: dict = Field(..., description=(
+        "UCI 正規化財務比率 (0-1), key 為特徵名。可只給部分, "
+        "未提供者以訓練集中位數補值。例: "
+        "{'Net Income to Total Assets': 0.6, 'Total debt/Total net worth': 0.02}"))
+
+class FinancialRiskResponse(BaseModel):
+    probability: float = Field(..., description="破產機率 (模型輸出)")
+    risk_tier: str = Field(..., description="High / Watch / Low")
+    top_factors: list = Field(..., description="影響最大的特徵貢獻 (正=推向破產)")
+    filled_with_median: int = Field(..., description="以中位數補值的特徵數")
+    model_info: str = Field(..., description="模型與資料來源")
+
+@app.post("/api/predict/financial-risk", response_model=FinancialRiskResponse)
+def predict_financial_risk(request: FinancialRatiosRequest = Body(...)):
+    """
+    [ML] 供應商財務風險 — 輸入 UCI 正規化財務比率, 輸出破產機率與分級。
+    模型: XGBoost, 訓練自台灣 6,819 家真實企業 (test AUC 0.958)。
+    """
+    if not FINANCIAL_MODEL_LOADED:
+        raise HTTPException(status_code=503, detail="Financial risk model not loaded")
+    try:
+        b = financial_risk_bundle
+        feats = b["feature_names"]
+        unknown = [k for k in request.ratios if k not in feats]
+        if unknown:
+            raise HTTPException(status_code=422,
+                detail=f"未知特徵名: {unknown[:5]} (需為 UCI 資料集欄名)")
+        # 值必須是有限數值 — 否則回 422 而非讓 float() 在深處炸成 500
+        clean = {}
+        for k, v in request.ratios.items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422,
+                    detail=f"特徵「{k}」的值必須是數字, 收到: {v!r}")
+            if fv != fv or fv in (float("inf"), float("-inf")):
+                raise HTTPException(status_code=422,
+                    detail=f"特徵「{k}」的值必須是有限數值")
+            clean[k] = fv
+        row = dict(b["train_medians"])
+        row.update(clean)
+        Xrow = pd.DataFrame([row])[feats]
+
+        proba = float(b["model"].predict_proba(Xrow)[0, 1])
+        thr = b["thresholds"]
+        tier = "High" if proba >= thr["high"] else ("Watch" if proba >= thr["watch"] else "Low")
+
+        contribs = _model_contributions(b["model"], Xrow)
+        order = abs(contribs).argsort()[::-1][:5]
+        top = [{"feature": feats[i],
+                "value": round(float(Xrow.iloc[0, i]), 4),
+                "contribution": round(float(contribs[i]), 3),
+                "direction": "↑ 推升風險" if contribs[i] > 0 else "↓ 降低風險",
+                "user_provided": feats[i] in request.ratios}
+               for i in order]
+
+        return FinancialRiskResponse(
+            probability=round(proba, 4),
+            risk_tier=tier,
+            top_factors=top,
+            filled_with_median=len(feats) - len(request.ratios),
+            model_info=f"{b['model_name']} | {b['data_source']} | test AUC={b['metrics']['test_auc']:.3f}",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in financial risk: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/assess/company-financial")
+def assess_company_financial(name: str = Query(..., description="公司名稱或股票代號 (如 台積電 / 2330.TW)")):
+    """
+    [即時] 公司名稱 → Altman Z''-score 財務風險評估。
+    以 yfinance 抓取最新年報實算 (上市櫃公司), 未上市/查無財報時誠實回報。
+    404 = 查無此公司/財報; 502 = 外部資料源暫時故障 (可重試, 勿當作不存在)。
+    """
+    if not FR_ENGINE_LOADED:
+        raise HTTPException(status_code=503, detail="Financial assessment engine not loaded")
+    result, err, kind = fr.assess_company(name.strip())
+    if err:
+        raise HTTPException(status_code=502 if kind == "upstream" else 404, detail=err)
+    result["method"] = ("Altman Z''-score (1995 新興市場版): "
+                        "Z''=6.56·X1+3.26·X2+6.72·X3+1.05·X4; "
+                        ">2.6 安全 | 1.1-2.6 灰色 | <1.1 危險")
+    result["caveat"] = ("Z-score 為公式型預警指標, 非本專案 ML 模型輸出; "
+                        "ML 模型 (UCI 正規化比率空間) 請用 /api/predict/financial-risk。")
+    return result
 
 @app.get("/api/supplier/search")
 def search_supplier(q: str):
