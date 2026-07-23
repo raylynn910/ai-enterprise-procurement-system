@@ -41,6 +41,24 @@ except Exception as e:
     print(f"Warning: ML models failed to load. Using mock fallback. Error: {e}")
     ML_MODELS_LOADED = False
 
+# 新供應商風險評分引擎
+try:
+    with open(os.path.join(BASE_DIR, "models", "new_supplier_scoring_model.pkl"), "rb") as f:
+        new_supplier_bundle = pickle.load(f)
+    NEW_SUPPLIER_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: new-supplier scoring model failed to load. Error: {e}")
+    NEW_SUPPLIER_MODEL_LOADED = False
+
+# 供應商財務風險模型
+try:
+    with open(os.path.join(BASE_DIR, "models", "financial_risk_model.pkl"), "rb") as f:
+        financial_risk_bundle = pickle.load(f)
+    FINANCIAL_MODEL_LOADED = True
+except Exception as e:
+    print(f"Warning: financial risk model failed to load. Error: {e}")
+    FINANCIAL_MODEL_LOADED = False
+
 app = FastAPI(
     title="Smart Procurement API",
     description="API for the AI-driven Enterprise Procurement System",
