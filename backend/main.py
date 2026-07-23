@@ -933,7 +933,7 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
                     - You MUST explicitly adapt your advice to the specific Item ({request.item_description}) and Category ({request.category}). Do not give generic advice.
                     - Point 1 MUST be about finding 2-3 alternative suppliers for this specific item to create a bidding war (競價). Mention specific traits to look for in competitors for {request.item_description}.
                     - Point 2 MUST be about leveraging procurement networking and industry connections (採購的人脈) to find insider pricing or market trends specifically for {request.category} or {request.item_description}.
-                    - Point 3 should be a tactical negotiation move based on the supplier's risk and single-source status.
+                    - Point 3 MUST be a VERY CONCISE, punchy tactical negotiation move based on the supplier's risk and single-source status. Keep Point 3 under 2 sentences and directly state the action (e.g., "Use alternative quotes to force a volume discount"). Do NOT write fluffy or repetitive text for Point 3.
                     
                     Format the output in Traditional Chinese (zh-TW) exactly like this:
                     **【預測分析】**
