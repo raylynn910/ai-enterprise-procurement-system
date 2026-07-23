@@ -930,15 +930,16 @@ def predict_savings(request: SavingsPredictionRequest = Body(...)):
                     Task 1 (Explanation): Provide a short 2 sentence explanation of why this prediction makes sense based on the context.
                     Task 2 (Negotiation Playbook): Provide a 3-bullet-point "Business Negotiation Playbook" (商學交戰手則) designed to teach a beginner (小白) how to achieve this target savings. 
                     Important rules for the playbook:
-                    - MUST include a strategy about finding 2-3 alternative suppliers to create a bidding war (競價).
-                    - MUST include a strategy about leveraging procurement networking and industry connections (採購的人脈).
-                    - Formulate the advice as practical, actionable business strategies based on the supplier's risk and single-source status.
+                    - You MUST explicitly adapt your advice to the specific Item ({request.item_description}) and Category ({request.category}). Do not give generic advice.
+                    - Point 1 MUST be about finding 2-3 alternative suppliers for this specific item to create a bidding war (競價). Mention specific traits to look for in competitors for {request.item_description}.
+                    - Point 2 MUST be about leveraging procurement networking and industry connections (採購的人脈) to find insider pricing or market trends specifically for {request.category} or {request.item_description}.
+                    - Point 3 should be a tactical negotiation move based on the supplier's risk and single-source status.
                     
                     Format the output in Traditional Chinese (zh-TW) exactly like this:
                     **【預測分析】**
                     (Explanation text here)
 
-                    **【AI 商學教戰手則 (新手必讀)】**
+                    **【AI 商學教戰手則 (針對 {request.item_description} - 新手必讀)】**
                     - (Point 1)
                     - (Point 2)
                     - (Point 3)

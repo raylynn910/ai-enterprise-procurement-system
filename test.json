@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "pred_savings_pct": 14.03,
+  "pred_class_code": 0,
+  "status_text": "🟢 預期可節省成本",
+  "is_disputed": false,
+  "ai_explanation": "**【預測分析】**\n此預測合理，因為Oracle資料庫授權並非單一來源採購，代表可透過多家經銷商進行競價。鑑於Oracle授權定價複雜且存在議價空間，引入競爭將有效推動價格下探，實現可觀的節省。\n\n**【AI 商學教戰手則 (針對 Oracle Database License - 新手必讀)】**\n- 針對Oracle資料庫授權，務必積極尋找2-3家其他經授權的Oracle經銷商或合作夥伴（例如白金級或金級合作夥伴、專精於Oracle授權的加值經銷商）進行比價，以創造有效的競價環境。特別留意那些以價格競爭力強、提供專業技術支援或特定產業解決方案聞名的經銷商。\n- 善用採購人脈與產業社群，尤其是IT軟體領域。透過與同業交流，獲取關於Oracle授權的「內幕消息」，例如常見的折扣模式、季度末促銷活動，或業界如何成功議定支援服務與授權合規調整（True-up）的策略，這些資訊將成為你議價的有力籌碼。\n- 由於SUP-001供應商風險低且非單一來源，你應坦誠告知SUP-001目前正同時考量其他Oracle經銷商的報價。明確表達維持長期合作關係的意願，但強調其報價必須具備市場競爭力才能確保本次訂單，藉此施加壓力促使其提供更優惠的條件。",
+  "enriched_features": {
+    "supplier_risk": "Low",
+    "maverick_spend": "No",
+    "preferred_supplier": "Yes"
+  },
+  "is_mock": false
+}
