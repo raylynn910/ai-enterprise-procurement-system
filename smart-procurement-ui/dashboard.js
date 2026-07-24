@@ -1514,66 +1514,76 @@ document.addEventListener('DOMContentLoaded', () => {
 // Global Search Logic
 document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('global-search-input');
+    const searchBtn = document.getElementById('btn-global-search');
+    
+    const performSearch = async () => {
+        const query = searchInput.value.trim();
+        if (!query) return;
+        
+        try {
+            const res = await fetch(`http://localhost:8000/api/supplier/search?q=${encodeURIComponent(query)}`);
+            const data = await res.json();
+            
+            if (!data.found) {
+                alert(data.message || 'No supplier found.');
+                return;
+            }
+            
+            // Switch to view-supplier by triggering the nav item click
+            const supplierNav = document.querySelector('.nav-item[data-target="view-supplier"]');
+            if (supplierNav) {
+                supplierNav.click();
+            }
+            // Update Scorecard Data
+            document.getElementById('sc-supplier-name').innerText = data.supplier.name;
+            
+            // Risk Badge
+            const rBadge = document.getElementById('sc-supplier-risk');
+            rBadge.innerText = `Risk: ${data.supplier.risk_level}`;
+            if (data.supplier.risk_level === '需複核') {
+                rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);';
+            } else {
+                rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
+            }
+            
+            // KPI Cards
+            document.getElementById('sc-total-spend').innerText = '$' + Number(data.metrics.total_spend).toLocaleString();
+            document.getElementById('sc-total-pos').innerText = data.metrics.total_pos;
+            
+            const avgSav = document.getElementById('sc-avg-savings');
+            avgSav.innerText = data.metrics.avg_savings + '%';
+            avgSav.className = data.metrics.avg_savings > 0 ? 'kpi-value success-text' : 'kpi-value danger-text';
+            
+            const avgLate = document.getElementById('sc-avg-late');
+            avgLate.innerText = data.metrics.avg_days_late + ' 天';
+            avgLate.className = data.metrics.avg_days_late > 0 ? 'kpi-value warning-text' : 'kpi-value success-text';
+            
+            const esg = document.getElementById('sc-esg-score');
+            esg.innerText = data.supplier.esg_score;
+            esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
+            
+            // Recent POs
+            window.SupplierPOsState.data = data.recent_pos || [];
+            window.SupplierPOsState.sortBy = 'date';
+            window.SupplierPOsState.sortOrder = 'desc';
+            renderSupplierPOs();
+            
+        } catch (e) {
+            console.error('Search failed:', e);
+            alert('Search error occurred. Please try again later.');
+        }
+    };
+
     if (searchInput) {
-        searchInput.addEventListener('keypress', async (e) => {
+        searchInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
-                const query = searchInput.value.trim();
-                if (!query) return;
-                
-                try {
-                    const res = await fetch(`http://localhost:8000/api/supplier/search?q=${encodeURIComponent(query)}`);
-                    const data = await res.json();
-                    
-                    if (!data.found) {
-                        alert(data.message || 'No supplier found.');
-                        return;
-                    }
-                    
-                    // Switch to view-supplier by triggering the nav item click
-                    const supplierNav = document.querySelector('.nav-item[data-target="view-supplier"]');
-                    if (supplierNav) {
-                        supplierNav.click();
-                    }
-                    // Update Scorecard Data
-                    document.getElementById('sc-supplier-name').innerText = data.supplier.name;
-                    
-                    // Risk Badge
-                    const rBadge = document.getElementById('sc-supplier-risk');
-                    rBadge.innerText = `Risk: ${data.supplier.risk_level}`;
-                    if (data.supplier.risk_level === '需複核') {
-                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger);';
-                    } else {
-                        rBadge.style = 'font-size:1.1rem; padding:0.5rem 1rem; background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success);';
-                    }
-                    
-                    // KPI Cards
-                    document.getElementById('sc-total-spend').innerText = '$' + Number(data.metrics.total_spend).toLocaleString();
-                    document.getElementById('sc-total-pos').innerText = data.metrics.total_pos;
-                    
-                    const avgSav = document.getElementById('sc-avg-savings');
-                    avgSav.innerText = data.metrics.avg_savings + '%';
-                    avgSav.className = data.metrics.avg_savings > 0 ? 'kpi-value success-text' : 'kpi-value danger-text';
-                    
-                    const avgLate = document.getElementById('sc-avg-late');
-                    avgLate.innerText = data.metrics.avg_days_late + ' 天';
-                    avgLate.className = data.metrics.avg_days_late > 0 ? 'kpi-value warning-text' : 'kpi-value success-text';
-                    
-                    const esg = document.getElementById('sc-esg-score');
-                    esg.innerText = data.supplier.esg_score;
-                    esg.className = data.supplier.esg_score >= 70 ? 'kpi-value success-text' : 'kpi-value danger-text';
-                    
-                    // Recent POs
-                    window.SupplierPOsState.data = data.recent_pos || [];
-                    window.SupplierPOsState.sortBy = 'date';
-                    window.SupplierPOsState.sortOrder = 'desc';
-                    renderSupplierPOs();
-                    
-                } catch (e) {
-                    console.error('Search failed:', e);
-                    alert('Search error occurred. Please try again later.');
-                }
+                performSearch();
             }
         });
+    }
+    
+    if (searchBtn) {
+        searchBtn.addEventListener('click', performSearch);
     }
 });
 

@@ -43,9 +43,10 @@
         <!-- Main Content -->
         <main class="main-content">
             <header class="topbar glass-panel">
-                <div class="search-bar">
+                <div class="search-bar" style="display: flex; gap: 0.5rem; align-items: center;">
                     <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" id="global-search-input" placeholder="搜尋供應商名稱... (e.g. TSMC, Cornerstone)">
+                    <input type="text" id="global-search-input" placeholder="搜尋供應商名稱... (e.g. TSMC, Cornerstone)" style="flex: 1;">
+                    <button id="btn-global-search" class="btn btn-primary" style="padding: 0.4rem 1rem; border-radius: 6px;"><i class="ph ph-magnifying-glass"></i> 搜尋</button>
                 </div>
                 <div class="header-actions">
                     <button id="btn-open-add-supplier" class="btn-primary" style="padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; border: none; cursor: pointer; background: var(--primary); color: #000;">
